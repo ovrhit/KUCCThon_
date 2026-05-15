@@ -4,14 +4,14 @@ import { useState, useRef, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { ChevronLeft, Circle, Square, RefreshCcw, Check, Loader2, CameraOff, Calendar as CalendarIcon } from "lucide-react";
 import Link from "next/link";
-import { MOCK_TARGETS } from "@/lib/mockData";
+import { MOCK_TARGETS, resolveTargetId } from "@/lib/mockData";
 import { supabase } from "@/lib/supabase/client";
 import { VIDEO_BUCKET } from "@/lib/supabase/paths";
 
 function RecordContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const initialTarget = searchParams?.get("target") || "me";
+  const initialTarget = resolveTargetId(searchParams?.get("target") || "me");
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -137,7 +137,7 @@ function RecordContent() {
   };
 
   const handleSubmit = async () => {
-    if (!recordedBlob || !thumbnailBlob) return;
+    if (!recordedBlob) return;
     setIsUploading(true);
     
     try {
@@ -151,7 +151,7 @@ function RecordContent() {
       const cleanUserId = userId.replace(/^\//, "");
       const cleanTargetId = targetId.replace(/^\//, "");
       const videoPath = `${cleanUserId}/${cleanTargetId}/${logId}.${videoExt}`;
-      const thumbPath = `${cleanUserId}/${cleanTargetId}/${logId}.jpg`;
+      const thumbPath = thumbnailBlob ? `${cleanUserId}/${cleanTargetId}/${logId}.jpg` : null;
 
       console.log("Starting upload process...", { bucket: VIDEO_BUCKET, videoPath, thumbPath });
 
@@ -161,11 +161,13 @@ function RecordContent() {
         .upload(videoPath, recordedBlob, { contentType: recordedBlob.type, upsert: false });
       if (videoErr) throw videoErr;
 
-      // 2. Upload Thumbnail
-      const { error: thumbErr } = await supabase.storage
-        .from(VIDEO_BUCKET)
-        .upload(thumbPath, thumbnailBlob, { contentType: "image/jpeg", upsert: false });
-      if (thumbErr) throw thumbErr;
+      // 2. Upload Thumbnail if the browser was able to capture one.
+      if (thumbnailBlob && thumbPath) {
+        const { error: thumbErr } = await supabase.storage
+          .from(VIDEO_BUCKET)
+          .upload(thumbPath, thumbnailBlob, { contentType: "image/jpeg", upsert: false });
+        if (thumbErr) throw thumbErr;
+      }
 
       // 3. Insert DB Record
       const { error: dbErr } = await supabase
