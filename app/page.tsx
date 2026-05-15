@@ -28,7 +28,7 @@ export default function Home() {
               </div>
             </Link>
             
-            {/* ✨ 녹화 버튼: 아주 얇은 골드빛 테두리(border border-[#D4B872]/50) 추가 */}
+            {/* 녹화 버튼: 아주 얇은 골드빛 테두리(border-2 border-[#D4B872]/50) 추가 */}
             <Link 
               href={`/record?target=${target.id}`}
               className="p-3 bg-[#FFF67B] border-2 border[#D4B872]/50 rounded-xl shadow-sm hover:bg-[#FDE047] hover:scale-105 active:scale-95 transition-all text-[#6B5700]"

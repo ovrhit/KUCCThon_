@@ -10,7 +10,7 @@ export default function ProfilePage() {
 
       {/* 프로필 카드 영역: 흰색 배경에 따뜻한 테두리 추가 */}
       <div className="flex items-center space-x-4 mb-10 bg-white border border-[#F0E6D2] shadow-sm p-6 rounded-3xl">
-        {/* 말씀하신 화사한 레몬 컬러(#FFF67B)를 프로필 아이콘 배경으로 적용! */}
+        {/* 레몬 컬러(#FFF67B)를 프로필 아이콘 배경으로 적용 */}
         <div className="w-16 h-16 bg-[#FFF67B] rounded-2xl flex items-center justify-center text-[#5C4F41]">
           <User size={32} />
         </div>
