@@ -1,31 +1,16 @@
 # 한편
 
-> 작은 감사들이 쌓여,
-> 하나의 메시지가 됩니다.
+> 작은 감사들이 쌓여, 하나의 메시지가 됩니다.
 
-한편은 감사의 마음을 기록하는 서비스입니다.
+**한편**은 특정 사람에게 전하고 싶은 짧은 감사 기록을 영상과 메시지로 남기고,  
+그 기록들을 시간순으로 모아 하나의 세로형 릴스처럼 보여주는 웹 서비스입니다.
 
-사용자는 매일,
-특정 사람에게 전하고 싶은 짧은 메시지를 남깁니다.
-
-- 최대 10초의 짧은 영상
-- 한 줄의 메시지
-- 하루의 작은 감사
-
-그리고 그 기록들은 시간순으로 쌓여,
-한 사람만을 위한 하나의 reel이 됩니다.
-
-부모님에게,
-친구에게,
-연인에게,
-혹은 미래의 나 자신에게.
-
-우리는 거창한 이벤트보다,
-매일의 작은 감사에 집중했습니다.
+부모님에게, 친구에게, 연인에게, 혹은 미래의 나 자신에게  
+매일의 작은 감사를 한 편의 메시지로 전달하는 것을 목표로 합니다.
 
 ---
 
-# Core Concept
+## 핵심 아이디어
 
 감사는 보통 순간적으로 지나갑니다.
 
@@ -33,57 +18,44 @@
 - “오늘 같이 있어줘서 고마워”
 - “별거 아니었지만 힘이 됐어”
 
-한편은
-그 짧은 감사들을 하루씩 기록하고,
-시간이 지나 하나의 메시지로 이어줍니다.
+한편은 이런 짧은 감사들을 하루씩 기록하고,  
+시간이 지난 뒤 한 사람만을 위한 하나의 영상 메시지로 이어줍니다.
 
 ---
 
-# MVP Features
+## 주요 기능 (MVP)
 
-## 1. 보관함 기반 홈 화면 (Setlog Style)
+### 1. 보관함 기반 홈 화면 (Setlog Style)
 - 대상별(나, 부모님, 친구 등) 미니멀 리스트 UI
 - 각 항목별 **즉석 기록(Video)** 버튼 제공
 - 보관함 클릭 시 상세 기록 페이지(캘린더)로 이동
 
-## 2. 대상별 기록 및 캘린더
+### 2. 대상별 기록 및 캘린더
 - 특정 대상에게 남긴 기록을 캘린더 형태로 시각화
 - 보관함 내부에서 즉시 기록(세로형 영상/사진) 가능
 
-## 3. Replay Reel (세로형 릴스)
+### 3. Replay Reel (세로형 릴스)
 - 시간순 자동 연결 및 재생
 - Fade transition 및 Vertical scroll UI
 
-## 4. My Page
+### 4. My Page
 - 사용자 기록 현황 및 환경 설정
 
-## 5. Share
+### 5. Share
 - 완성된 릴스를 링크로 공유
 
 ---
 
-# Why
+## Tech Stack
 
-감사는 대부분 짧게 지나갑니다.
-
-하지만 그 짧은 순간들이 쌓이면,
-한 사람에게는 오래 남는 기억이 됩니다.
-
-한편은
-매일의 작은 감사들을 기록하고,
-시간의 흐름으로 전달합니다.
-
----
-
-# Tech Stack
-
-## Frontend
-- Next.js 14 (App Router)
+### Frontend
+- Next.js 14.2.15 (Stable)
 - TypeScript
 - Tailwind CSS
 - Framer Motion
+- Lucide React
 
-## Backend / Infra
+### Backend / Infra
 - **Supabase** (PostgreSQL, Storage, Auth)
 - Local DB: PostgreSQL 16
 - Security: Row Level Security (RLS)
@@ -91,7 +63,7 @@
 
 ---
 
-# Integrated Backend Features (MVP)
+# Integrated Backend Features
 
 ## 1. Data Integrity & Security (Part A)
 - **Schema**: Profiles, Targets, GratitudeLogs, SharedReels 간의 엄격한 관계 형성
