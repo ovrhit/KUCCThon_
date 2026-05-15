@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Loader2, Play, X } from "lucide-react";
-import { resolveTargetId } from "@/lib/mockData";
+import { PUBLIC_DEMO_USER_ID, resolveTargetId } from "@/lib/mockData";
 import { fetchDemoTargets, updateDemoTargetName } from "@/lib/targets";
 import { supabase } from "@/lib/supabase/client";
 import { VIDEO_BUCKET } from "@/lib/supabase/paths";
@@ -24,6 +24,7 @@ export default function TargetDetailPage() {
   const [isSavingName, setIsSavingName] = useState(false);
   const [pendingDeleteLog, setPendingDeleteLog] = useState<GratitudeLog | null>(null);
   const [isDeletingLog, setIsDeletingLog] = useState(false);
+  const [isClearingTargetData, setIsClearingTargetData] = useState(false);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTriggeredRef = useRef(false);
 
@@ -122,6 +123,60 @@ export default function TargetDetailPage() {
     return [log.videoUrl, log.thumbnailUrl].filter(
       (path): path is string => typeof path === "string" && path.length > 0 && !path.startsWith("http"),
     );
+  };
+
+  const clearTargetData = async () => {
+    if (isClearingTargetData) return;
+
+    const ok = confirm(`${target?.name ?? "이 대상"}의 기록과 영상을 모두 지울까요?`);
+    if (!ok) return;
+
+    setIsClearingTargetData(true);
+    try {
+      const { data, error: fetchError } = await supabase
+        .from("gratitude_logs")
+        .select("video_url,thumbnail_url")
+        .eq("user_id", PUBLIC_DEMO_USER_ID)
+        .eq("target_id", targetId);
+
+      if (fetchError) throw fetchError;
+
+      const storagePaths = Array.from(
+        new Set(
+          (data ?? [])
+            .flatMap((log) => [log.video_url, log.thumbnail_url])
+            .filter((path): path is string => typeof path === "string" && path.length > 0 && !path.startsWith("http")),
+        ),
+      );
+
+      if (storagePaths.length > 0) {
+        const { error: storageError } = await supabase.storage
+          .from(VIDEO_BUCKET)
+          .remove(storagePaths);
+
+        if (storageError) {
+          console.warn("Target storage cleanup skipped:", storageError);
+        }
+      }
+
+      const { error: deleteError } = await supabase
+        .from("gratitude_logs")
+        .delete()
+        .eq("user_id", PUBLIC_DEMO_USER_ID)
+        .eq("target_id", targetId);
+
+      if (deleteError) throw deleteError;
+
+      setLogs([]);
+      setSelectedLog(null);
+      setPendingDeleteLog(null);
+      alert("데이터를 지웠습니다.");
+    } catch (clearError) {
+      console.error("Clear target data error:", clearError);
+      alert("데이터를 지우지 못했습니다. Supabase 삭제 정책이 적용되어 있는지 확인해주세요.");
+    } finally {
+      setIsClearingTargetData(false);
+    }
   };
 
   const deletePendingLog = async () => {
@@ -254,12 +309,21 @@ export default function TargetDetailPage() {
             </button>
           </div>
         ) : (
-          <button
-            onClick={startEditingName}
-            className="px-3 py-2 rounded-full bg-white border border-[#F0E6D2] text-[#A69785] text-[11px] font-black shadow-sm"
-          >
-            이름 수정
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              onClick={clearTargetData}
+              disabled={isClearingTargetData}
+              className="min-w-16 px-3 py-2 rounded-full bg-white border border-[#F0E6D2] text-[#D9534F] text-[11px] font-black shadow-sm disabled:opacity-40"
+            >
+              {isClearingTargetData ? <Loader2 size={14} className="mx-auto animate-spin" /> : "데이터 지우기"}
+            </button>
+            <button
+              onClick={startEditingName}
+              className="px-3 py-2 rounded-full bg-white border border-[#F0E6D2] text-[#A69785] text-[11px] font-black shadow-sm"
+            >
+              이름 수정
+            </button>
+          </div>
         )}
       </header>
 
