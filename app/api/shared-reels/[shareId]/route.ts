@@ -8,7 +8,8 @@ export async function GET(
   { params }: { params: { shareId: string } },
 ) {
   try {
-    const sharedReel = await getSharedReelWithLogs(params.shareId);
+    const { shareId } = params;
+    const sharedReel = await getSharedReelWithLogs(shareId);
 
     if (!sharedReel) {
       return NextResponse.json({ error: "Shared reel not found." }, { status: 404 });

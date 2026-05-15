@@ -87,21 +87,25 @@
 - **Supabase** (PostgreSQL, Storage, Auth)
 - Local DB: PostgreSQL 16
 - Security: Row Level Security (RLS)
+- API: Next.js API Routes (Route Handlers)
 
 ---
 
-# Project Structure
+# Integrated Backend Features (MVP)
 
-```txt
-/app                # Next.js Pages & Routes
-/components         # React Components
-/supabase           # Database Scripts (Schema, Integrity, Security)
-  ├── schema.sql    # 테이블 생성 스크립트
-  ├── integrity.sql # 제약 조건 및 트리거
-  └── security.sql  # RLS 보안 정책
-/lib                # Mock Data & Utilities
-/types              # TypeScript Definitions
-```
+## 1. Data Integrity & Security (Part A)
+- **Schema**: Profiles, Targets, GratitudeLogs, SharedReels 간의 엄격한 관계 형성
+- **Constraints**: 메시지 길이(300자), 영상 확장자(.mp4, .mov) 자동 검증
+- **Triggers**: 데이터 수정 시 `updated_at` 자동 갱신 및 비디오 스토리지 경로(`{user_id}/{target_id}/...`) 무결성 강제
+- **RLS Policies**: 사용자별 데이터 격리 및 공유 링크 기반 외부 접근 허용
+
+## 2. Media & Share Logic (Part B)
+- **API Routes**: 
+  - `GET /api/reels/[targetId]`: 특정 대상의 영상을 시간순으로 정렬하여 반환
+  - `POST /api/shared-reels`: 외부 공유를 위한 유니크한 릴스 링크 생성
+  - `GET /api/shared-reels/[shareId]`: 공유받은 사람이 보는 릴스 데이터 조회
+- **Storage Strategy**: 사용자 및 대상별 폴더 구조를 통한 체계적인 파일 관리
+- **Supabase Utils**: 서버사이드에서 안전하게 DB/Storage에 접근하기 위한 유틸리티 함수 구현
 
 ---
 

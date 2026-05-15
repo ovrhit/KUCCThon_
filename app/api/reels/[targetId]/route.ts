@@ -8,9 +8,10 @@ export async function GET(
   { params }: { params: { targetId: string } },
 ) {
   try {
+    const { targetId } = params;
     const url = new URL(request.url);
     const userId = url.searchParams.get("userId") ?? undefined;
-    const logs = await getTargetReelLogs({ targetId: params.targetId, userId });
+    const logs = await getTargetReelLogs({ targetId, userId });
 
     return NextResponse.json({ logs });
   } catch (error) {

@@ -1,4 +1,5 @@
 export default function SharePage({ params }: { params: { shareId: string } }) {
+  const { shareId } = params;
   return (
     <div className="p-6 text-center mt-20">
       <div className="mb-8">

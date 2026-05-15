@@ -1,8 +1,9 @@
 export default function ReplayPage({ params }: { params: { targetId: string } }) {
+  const { targetId } = params;
   return (
     <div className="h-screen bg-black flex flex-col items-center justify-center text-white relative">
       <div className="absolute top-10 left-6 z-10">
-        <h1 className="text-xl font-bold">감사 릴스: {params.targetId}</h1>
+        <h1 className="text-xl font-bold">감사 릴스: {targetId}</h1>
       </div>
       
       <div className="w-full h-full bg-gray-900 flex items-center justify-center">
