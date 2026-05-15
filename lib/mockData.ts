@@ -1,5 +1,7 @@
 import { Target, GratitudeLog } from "@/types";
 
+export const PUBLIC_DEMO_USER_ID = "00000000-0000-0000-0000-000000000000";
+
 export const MOCK_TARGETS: Target[] = [
   { id: "00000000-0000-0000-0000-000000000001", name: "나 자신", description: "오늘의 나에게 하는 한마디", color: "bg-black", slug: "me" },
   { id: "00000000-0000-0000-0000-000000000002", name: "부모님", description: "세상에서 가장 소중한 분들", color: "bg-orange-400", slug: "parents" },

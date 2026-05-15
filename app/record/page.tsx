@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { ChevronLeft, Circle, Square, RefreshCcw, Check, Loader2, CameraOff, Calendar as CalendarIcon } from "lucide-react";
 import Link from "next/link";
-import { MOCK_TARGETS, resolveTargetId } from "@/lib/mockData";
+import { MOCK_TARGETS, PUBLIC_DEMO_USER_ID, resolveTargetId } from "@/lib/mockData";
 import { supabase } from "@/lib/supabase/client";
 import { VIDEO_BUCKET } from "@/lib/supabase/paths";
 
@@ -142,7 +142,7 @@ function RecordContent() {
     
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      const userId = user?.id || "anonymous-user";
+      const userId = user?.id || PUBLIC_DEMO_USER_ID;
       
       const logId = crypto.randomUUID();
       const videoExt = recordedBlob.type.includes("mp4") ? "mp4" : "webm";
@@ -174,7 +174,7 @@ function RecordContent() {
         .from("gratitude_logs")
         .insert({
           id: logId,
-          user_id: userId === "anonymous-user" ? null : userId,
+          user_id: userId,
           target_id: targetId,
           message,
           video_url: videoPath,
