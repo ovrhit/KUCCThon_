@@ -42,6 +42,8 @@ function RecordContent() {
   const [message, setMessage] = useState("");
   const [recordedDate, setRecordedDate] = useState(new Date().toISOString().split('T')[0]);
   const [isUploading, setIsUploading] = useState(false);
+  const [isCheckingDailyLimit, setIsCheckingDailyLimit] = useState(true);
+  const [dailyLogExists, setDailyLogExists] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const stopSourceStream = useCallback(() => {
@@ -100,11 +102,55 @@ function RecordContent() {
     return cameraPromiseRef.current;
   }, []);
 
+  const getCurrentUserId = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    return user?.id || PUBLIC_DEMO_USER_ID;
+  }, []);
+
+  const checkDailyLogExists = useCallback(async (nextTargetId: string, nextRecordedDate: string) => {
+    const userId = await getCurrentUserId();
+    const { data, error: fetchError } = await supabase
+      .from("gratitude_logs")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("target_id", nextTargetId)
+      .eq("recorded_date", nextRecordedDate)
+      .limit(1);
+
+    if (fetchError) {
+      console.error("Daily limit check error:", fetchError);
+      return false;
+    }
+
+    return Boolean(data?.length);
+  }, [getCurrentUserId]);
+
   useEffect(() => {
-    if (!recordedBlob) {
+    let isAlive = true;
+
+    async function checkLimit() {
+      setIsCheckingDailyLimit(true);
+      const exists = await checkDailyLogExists(targetId, recordedDate);
+      if (!isAlive) return;
+
+      setDailyLogExists(exists);
+      setIsCheckingDailyLimit(false);
+      if (exists && !recordedBlob) {
+        stopSourceStream();
+      }
+    }
+
+    checkLimit();
+    return () => {
+      isAlive = false;
+    };
+  }, [checkDailyLogExists, recordedBlob, recordedDate, stopSourceStream, targetId]);
+
+  useEffect(() => {
+    if (!recordedBlob && !isCheckingDailyLimit && !dailyLogExists) {
       void startCamera();
     }
-  }, [recordedBlob, startCamera]);
+  }, [dailyLogExists, isCheckingDailyLimit, recordedBlob, startCamera]);
 
   useEffect(() => {
     fetchDemoTargets().then((items) => {
@@ -246,6 +292,16 @@ function RecordContent() {
   const startRecording = async () => {
     if (isRecording || !recordingCanvasRef.current) return;
 
+    if (isCheckingDailyLimit) return;
+
+    const exists = dailyLogExists || await checkDailyLogExists(targetId, recordedDate);
+    if (exists) {
+      setDailyLogExists(true);
+      stopSourceStream();
+      alert("이 대상은 선택한 날짜에 이미 기록을 남겼습니다.");
+      return;
+    }
+
     const mediaStream = await startCamera();
     if (!mediaStream || !recordingCanvasRef.current) return;
 
@@ -360,8 +416,13 @@ function RecordContent() {
     setIsUploading(true);
     
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const userId = user?.id || PUBLIC_DEMO_USER_ID;
+      const userId = await getCurrentUserId();
+      const exists = await checkDailyLogExists(targetId, recordedDate);
+      if (exists) {
+        setDailyLogExists(true);
+        alert("이 대상은 선택한 날짜에 이미 기록을 남겼습니다.");
+        return;
+      }
       
       const logId = crypto.randomUUID();
       const videoExt = recordedBlob.type.includes("mp4") ? "mp4" : "webm";
@@ -403,7 +464,15 @@ function RecordContent() {
           recorded_date: recordedDate,
         });
       
-      if (dbErr) throw dbErr;
+      if (dbErr) {
+        if (dbErr.code === "23505") {
+          setDailyLogExists(true);
+          alert("이 대상은 선택한 날짜에 이미 기록을 남겼습니다.");
+          return;
+        }
+
+        throw dbErr;
+      }
 
       alert("기록이 저장되었습니다!");
       router.push(`/target/${targetId}`);
@@ -461,7 +530,13 @@ function RecordContent() {
                 muted
                 className={`w-full h-full object-cover scale-x-[-1] ${stream ? "opacity-100" : "opacity-0"}`}
               />
-              {!stream && (
+              {dailyLogExists ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center text-white/75">
+                  <CameraOff size={42} className="text-white/35" />
+                  <p className="text-sm font-bold">이 대상은 선택한 날짜에 이미 기록을 남겼습니다.</p>
+                  <p className="text-xs text-white/45">다른 대상을 선택하거나 날짜를 바꿔주세요.</p>
+                </div>
+              ) : !stream && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center text-white/60">
                   <CameraOff size={42} className="text-white/30" />
                   <p className="text-sm font-bold">카메라를 준비하는 중입니다.</p>
@@ -492,12 +567,20 @@ function RecordContent() {
       <div className="h-64 bg-black flex flex-col p-6 z-20">
         {!recordedBlob && !error ? (
           <div className="flex-1 flex items-center justify-center">
-            {isRecording ? (
+            {dailyLogExists ? (
+              <div className="text-center text-xs font-bold text-white/45">
+                오늘 이 대상의 기록은 완료됐습니다.
+              </div>
+            ) : isRecording ? (
               <button onClick={stopRecording} className="w-20 h-20 bg-transparent border-4 border-red-500 rounded-full flex items-center justify-center">
                 <Square className="text-red-500" fill="currentColor" size={24} />
               </button>
             ) : (
-              <button onClick={startRecording} className="w-20 h-20 bg-transparent border-4 border-white rounded-full flex items-center justify-center active:scale-90 transition-transform">
+              <button
+                onClick={startRecording}
+                disabled={isCheckingDailyLimit}
+                className="w-20 h-20 bg-transparent border-4 border-white rounded-full flex items-center justify-center active:scale-90 transition-transform disabled:opacity-30"
+              >
                 <div className="w-16 h-16 bg-red-500 rounded-full" />
               </button>
             )}
@@ -523,6 +606,11 @@ function RecordContent() {
                 maxLength={300}
                 className="w-full bg-gray-900 text-white rounded-xl p-4 text-sm font-medium border border-white/10 outline-none placeholder:text-gray-600"
               />
+              {dailyLogExists && (
+                <p className="text-xs font-bold text-red-300">
+                  선택한 대상은 이 날짜에 이미 기록이 있어 저장할 수 없습니다.
+                </p>
+              )}
             </div>
             
             <div className="flex justify-between items-center pb-4">
@@ -531,7 +619,7 @@ function RecordContent() {
               </button>
               <button 
                 onClick={handleSubmit}
-                disabled={isUploading}
+                disabled={isUploading || isCheckingDailyLimit || dailyLogExists}
                 className="bg-white text-black px-10 py-3.5 rounded-full font-black text-sm flex items-center space-x-2 disabled:opacity-30 transition-all active:scale-95"
               >
                 {isUploading ? <Loader2 className="animate-spin" size={18} /> : <Check size={18} />}

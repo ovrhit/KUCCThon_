@@ -257,9 +257,10 @@ export default function TargetDetailPage() {
               >
                 {renderLogPreview(log, "absolute inset-0 w-full h-full object-cover")}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
-                <span className="absolute bottom-3 left-3 text-[10px] font-bold text-white tracking-wider">
-                  {log.recordedDate.split("-").slice(1).join(".")}
-                </span>
+                <div className="absolute bottom-3 left-3 right-3 flex items-center gap-2 text-[10px] font-bold text-white tracking-wider">
+                  <span className="shrink-0">{log.recordedDate.split("-").slice(1).join(".")}</span>
+                  <span className="min-w-0 truncate text-left">{log.message}</span>
+                </div>
               </button>
             ))}
           </div>

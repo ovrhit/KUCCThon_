@@ -37,7 +37,8 @@ CREATE TABLE gratitude_logs (
     video_url TEXT NOT NULL,            -- Storage 경로
     thumbnail_url TEXT,                 -- 썸네일 이미지 경로 (추가)
     recorded_date DATE DEFAULT CURRENT_DATE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, target_id, recorded_date)
 );
 
 -- 4. Shared Reels Table (공유 링크 정보)
