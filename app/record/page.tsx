@@ -200,15 +200,15 @@ function RecordContent() {
         )}
         <div className="flex items-center space-x-2">
           {!recordedBlob && (
-             <div className="relative">
+             <div className="relative group active:scale-95 transition-transform">
                 <input 
                   type="date" 
                   value={recordedDate} 
                   onChange={(e) => setRecordedDate(e.target.value)}
-                  className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                  className="absolute inset-0 opacity-0 w-full h-full cursor-pointer z-30"
                 />
-                <div className="p-2 bg-white/10 rounded-full backdrop-blur-md border border-white/10">
-                  <CalendarIcon size={20} />
+                <div className="p-3 bg-black/40 rounded-full backdrop-blur-md border border-white/20 flex items-center justify-center relative z-20">
+                  <CalendarIcon size={20} className="text-white" />
                 </div>
              </div>
           )}

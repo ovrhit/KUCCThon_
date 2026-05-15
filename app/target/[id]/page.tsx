@@ -58,6 +58,7 @@ export default function TargetDetailPage() {
   if (!target) return <div className="p-6 text-center mt-20">대상을 찾을 수 없습니다.</div>;
 
   const getPublicUrl = (path: string) => {
+    if (path.startsWith("http")) return path; // Return as is if already a URL
     return supabase.storage.from(VIDEO_BUCKET).getPublicUrl(path).data.publicUrl;
   };
 
