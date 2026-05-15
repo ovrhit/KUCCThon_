@@ -34,8 +34,9 @@ CREATE TABLE gratitude_logs (
     user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     target_id UUID NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
     message TEXT NOT NULL,
-    video_url TEXT NOT NULL,            -- Storage 경로 (예: user_id/target_id/timestamp.mp4)
-    recorded_date DATE DEFAULT CURRENT_DATE, -- 캘린더 및 릴스 정렬 기준 날짜
+    video_url TEXT NOT NULL,            -- Storage 경로
+    thumbnail_url TEXT,                 -- 썸네일 이미지 경로 (추가)
+    recorded_date DATE DEFAULT CURRENT_DATE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

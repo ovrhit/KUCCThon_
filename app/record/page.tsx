@@ -2,9 +2,11 @@
 
 import { useState, useRef, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { ChevronLeft, Circle, Square, RefreshCcw, Check, Loader2, CameraOff } from "lucide-react";
+import { ChevronLeft, Circle, Square, RefreshCcw, Check, Loader2, CameraOff, Calendar as CalendarIcon } from "lucide-react";
 import Link from "next/link";
 import { MOCK_TARGETS } from "@/lib/mockData";
+import { supabase } from "@/lib/supabase/client";
+import { buildVideoPath, VIDEO_BUCKET } from "@/lib/supabase/paths";
 
 function RecordContent() {
   const searchParams = useSearchParams();
@@ -12,25 +14,27 @@ function RecordContent() {
   const initialTarget = searchParams?.get("target") || "me";
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
+  const [thumbnailBlob, setThumbnailBlob] = useState<Blob | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState(10);
   
   const [targetId, setTargetId] = useState(initialTarget);
   const [message, setMessage] = useState("");
+  const [recordedDate, setRecordedDate] = useState(new Date().toISOString().split('T')[0]);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Initialize camera with improved error handling and landscape ratio
+  // Initialize camera
   const startCamera = useCallback(async () => {
     setError(null);
     try {
-      // Constraints for Landscape (16:9)
       const constraints = {
         video: { 
           facingMode: "user", 
@@ -46,69 +50,66 @@ function RecordContent() {
       
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
-        // High stability for mobile: explicit play call
         videoRef.current.onloadedmetadata = () => {
           videoRef.current?.play().catch(e => console.error("Auto-play failed:", e));
         };
       }
     } catch (err) {
       console.error("Error accessing camera:", err);
-      if (err instanceof Error) {
-        if (err.name === "NotAllowedError") {
-          setError("카메라 권한이 거부되었습니다. 설정에서 권한을 허용해주세요.");
-        } else if (err.name === "NotFoundError") {
-          setError("사용 가능한 카메라를 찾을 수 없습니다.");
-        } else {
-          setError("카메라를 시작하는 중 오류가 발생했습니다: " + err.message);
-        }
-      }
+      setError("카메라를 시작할 수 없습니다. 권한 설정을 확인해주세요.");
     }
   }, []);
 
   useEffect(() => {
-    if (!recordedBlob) {
-      startCamera();
-    }
-    return () => {
-      stream?.getTracks().forEach(track => track.stop());
-    };
+    if (!recordedBlob) startCamera();
+    return () => stream?.getTracks().forEach(track => track.stop());
   }, [recordedBlob, startCamera]);
 
   // Timer logic
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (isRecording && timeLeft > 0) {
-      interval = setInterval(() => {
-        setTimeLeft((prev) => prev - 1);
-      }, 1000);
+      interval = setInterval(() => setTimeLeft((prev) => prev - 1), 1000);
     } else if (timeLeft === 0 && isRecording) {
       stopRecording();
     }
     return () => clearInterval(interval);
   }, [isRecording, timeLeft]);
 
+  const captureThumbnail = () => {
+    if (videoRef.current && canvasRef.current) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+          setThumbnailBlob(blob);
+        }, "image/jpeg", 0.8);
+      }
+    }
+  };
+
   const startRecording = () => {
     if (!stream) return;
     chunksRef.current = [];
-    
-    // Check supported types for better compatibility
     const mimeType = MediaRecorder.isTypeSupported("video/mp4;codecs=h264") 
       ? "video/mp4;codecs=h264" 
       : "video/webm;codecs=vp8,opus";
 
     try {
       const mediaRecorder = new MediaRecorder(stream, { mimeType });
-      
       mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          chunksRef.current.push(e.data);
-        }
+        if (e.data.size > 0) chunksRef.current.push(e.data);
       };
-
       mediaRecorder.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: mediaRecorder.mimeType });
         setRecordedBlob(blob);
         setVideoUrl(URL.createObjectURL(blob));
+        // Capture thumbnail from the last frame or current video state
+        captureThumbnail();
       };
 
       mediaRecorderRef.current = mediaRecorder;
@@ -116,7 +117,6 @@ function RecordContent() {
       setIsRecording(true);
       setTimeLeft(10);
     } catch (e) {
-      console.error("MediaRecorder start failed:", e);
       alert("녹화를 시작할 수 없습니다.");
     }
   };
@@ -131,23 +131,58 @@ function RecordContent() {
 
   const retakeVideo = () => {
     setRecordedBlob(null);
+    setThumbnailBlob(null);
     setVideoUrl(null);
     setTimeLeft(10);
     startCamera();
   };
 
   const handleSubmit = async () => {
-    if (!recordedBlob) return;
+    if (!recordedBlob || !thumbnailBlob) return;
     setIsUploading(true);
     
     try {
-      console.log("Uploading...", { targetId, message, blobSize: recordedBlob.size });
-      await new Promise(resolve => setTimeout(resolve, 1500)); 
-      alert("기록이 성공적으로 저장되었습니다!");
-      router.push("/");
-    } catch (error) {
-      console.error("Upload failed", error);
-      alert("업로드 중 문제가 발생했습니다.");
+      // 1. Get User Session (or use a fixed ID for anonymous testing)
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user?.id || "anonymous-user"; // Fallback for local testing
+      
+      const logId = crypto.randomUUID();
+      const videoExt = recordedBlob.type.includes("mp4") ? "mp4" : "webm";
+      const videoPath = `${userId}/${targetId}/${logId}.${videoExt}`;
+      const thumbPath = `${userId}/${targetId}/${logId}.jpg`;
+
+      // 2. Upload Video
+      const { error: videoErr } = await supabase.storage
+        .from(VIDEO_BUCKET)
+        .upload(videoPath, recordedBlob);
+      if (videoErr) throw videoErr;
+
+      // 3. Upload Thumbnail
+      const { error: thumbErr } = await supabase.storage
+        .from(VIDEO_BUCKET)
+        .upload(thumbPath, thumbnailBlob);
+      if (thumbErr) throw thumbErr;
+
+      // 4. Insert DB Record
+      const { error: dbErr } = await supabase
+        .from("gratitude_logs")
+        .insert({
+          id: logId,
+          user_id: userId === "anonymous-user" ? null : userId, // Adjust based on your Auth setup
+          target_id: targetId,
+          message,
+          video_url: videoPath,
+          thumbnail_url: thumbPath,
+          recorded_date: recordedDate,
+        });
+      
+      if (dbErr) throw dbErr;
+
+      alert("기록이 저장되었습니다!");
+      router.push(`/target/${targetId}`);
+    } catch (err) {
+      console.error("Upload error:", err);
+      alert("업로드 실패: " + (err instanceof Error ? err.message : "알 수 없는 오류"));
     } finally {
       setIsUploading(false);
     }
@@ -155,7 +190,6 @@ function RecordContent() {
 
   return (
     <div className="min-h-screen bg-black text-white flex flex-col relative">
-      {/* Header */}
       <header className="absolute top-0 left-0 right-0 p-6 flex items-center justify-between z-20 bg-gradient-to-b from-black/80 to-transparent">
         <Link href="/" className="p-2 -ml-2 text-white"><ChevronLeft size={28} /></Link>
         {!recordedBlob && !error && (
@@ -164,68 +198,56 @@ function RecordContent() {
             <span className="font-mono text-sm">00:{timeLeft.toString().padStart(2, '0')}</span>
           </div>
         )}
-        <div className="w-10" />
+        <div className="flex items-center space-x-2">
+          {!recordedBlob && (
+             <div className="relative">
+                <input 
+                  type="date" 
+                  value={recordedDate} 
+                  onChange={(e) => setRecordedDate(e.target.value)}
+                  className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                />
+                <div className="p-2 bg-white/10 rounded-full backdrop-blur-md border border-white/10">
+                  <CalendarIcon size={20} />
+                </div>
+             </div>
+          )}
+        </div>
       </header>
 
-      {/* Video Area (Landscape 16:9 focused) */}
       <div className="flex-1 flex items-center justify-center bg-gray-950 px-4">
         <div className="w-full aspect-video bg-gray-900 rounded-2xl overflow-hidden shadow-2xl relative border border-white/5">
           {error ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center space-y-4">
               <CameraOff size={48} className="text-gray-600" />
               <p className="text-sm text-gray-400">{error}</p>
-              <button 
-                onClick={startCamera}
-                className="px-6 py-2 bg-white text-black rounded-full text-xs font-bold"
-              >
-                다시 시도
-              </button>
+              <button onClick={startCamera} className="px-6 py-2 bg-white text-black rounded-full text-xs font-bold">다시 시도</button>
             </div>
           ) : !recordedBlob ? (
-            <video 
-              ref={videoRef} 
-              autoPlay 
-              playsInline 
-              muted 
-              className="w-full h-full object-cover scale-x-[-1]" // Mirror for selfie
-            />
+            <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover scale-x-[-1]" />
           ) : (
-            <video 
-              src={videoUrl!} 
-              autoPlay 
-              loop 
-              playsInline 
-              className="w-full h-full object-cover"
-            />
+            <video src={videoUrl!} autoPlay loop playsInline className="w-full h-full object-cover" />
           )}
 
-          {/* Message Overlay Preview */}
           {recordedBlob && message && (
             <div className="absolute bottom-6 left-6 right-6 text-white drop-shadow-lg z-10">
-              <p className="text-lg font-bold leading-snug bg-black/20 backdrop-blur-sm p-2 rounded-lg inline-block">
-                {message}
-              </p>
+              <p className="text-lg font-bold leading-snug bg-black/20 backdrop-blur-sm p-2 rounded-lg inline-block">{message}</p>
             </div>
           )}
         </div>
       </div>
 
-      {/* Controls Area */}
+      <canvas ref={canvasRef} className="hidden" />
+
       <div className="h-64 bg-black flex flex-col p-6 z-20">
         {!recordedBlob && !error ? (
           <div className="flex-1 flex items-center justify-center">
             {isRecording ? (
-              <button 
-                onClick={stopRecording}
-                className="w-20 h-20 bg-transparent border-4 border-red-500 rounded-full flex items-center justify-center"
-              >
+              <button onClick={stopRecording} className="w-20 h-20 bg-transparent border-4 border-red-500 rounded-full flex items-center justify-center">
                 <Square className="text-red-500" fill="currentColor" size={24} />
               </button>
             ) : (
-              <button 
-                onClick={startRecording}
-                className="w-20 h-20 bg-transparent border-4 border-white rounded-full flex items-center justify-center active:scale-90 transition-transform"
-              >
+              <button onClick={startRecording} className="w-20 h-20 bg-transparent border-4 border-white rounded-full flex items-center justify-center active:scale-90 transition-transform">
                 <div className="w-16 h-16 bg-red-500 rounded-full" />
               </button>
             )}
@@ -234,15 +256,13 @@ function RecordContent() {
           <div className="flex flex-col h-full justify-between space-y-4">
             <div className="space-y-3">
               <div className="flex items-center space-x-2">
-                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">To.</span>
+                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest text-white/50">{recordedDate} To.</span>
                 <select 
                   value={targetId}
                   onChange={(e) => setTargetId(e.target.value)}
                   className="flex-1 bg-gray-900 text-white rounded-xl p-3 text-sm font-bold border border-white/10 outline-none"
                 >
-                  {MOCK_TARGETS.map(t => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
-                  ))}
+                  {MOCK_TARGETS.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </div>
               <input 
@@ -256,14 +276,9 @@ function RecordContent() {
             </div>
             
             <div className="flex justify-between items-center pb-4">
-              <button 
-                onClick={retakeVideo}
-                className="flex items-center space-x-2 text-gray-500 hover:text-white transition-colors"
-              >
-                <RefreshCcw size={18} />
-                <span className="text-xs font-bold">다시 찍기</span>
+              <button onClick={retakeVideo} className="flex items-center space-x-2 text-gray-500 hover:text-white transition-colors">
+                <RefreshCcw size={18} /><span className="text-xs font-bold">다시 찍기</span>
               </button>
-              
               <button 
                 onClick={handleSubmit}
                 disabled={isUploading || !message.trim()}

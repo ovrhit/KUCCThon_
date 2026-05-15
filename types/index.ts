@@ -10,5 +10,7 @@ export interface GratitudeLog {
   targetId: string;
   message: string;
   videoUrl: string;
+  thumbnailUrl: string;
   createdAt: string;
+  recordedDate: string;
 }
