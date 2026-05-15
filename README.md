@@ -78,38 +78,29 @@
 # Tech Stack
 
 ## Frontend
-- Next.js
+- Next.js 14 (App Router)
 - TypeScript
 - Tailwind CSS
 - Framer Motion
 
 ## Backend / Infra
-- Supabase
-  - Database
-  - Storage
-  - Auth (optional)
-
-## Deployment
-- Vercel
+- **Supabase** (PostgreSQL, Storage, Auth)
+- Local DB: PostgreSQL 16
+- Security: Row Level Security (RLS)
 
 ---
 
 # Project Structure
 
 ```txt
-/app
-  /target/[id]      # 대상별 보관함 (캘린더 + 기록 버튼)
-  /record           # 영상/메시지 기록
-  /replay/[targetId] # 세로형 릴스 재생
-  /share/[shareId]  # 공유 페이지
-/components
-  /shared           # BottomNavigation 등 공통 컴포넌트
-/lib
-  mockData.ts       # 대상(Target) 및 로그(Log) Mock 데이터
-/types
-  index.ts          # Target, GratitudeLog 인터페이스
-/styles
-/public
+/app                # Next.js Pages & Routes
+/components         # React Components
+/supabase           # Database Scripts (Schema, Integrity, Security)
+  ├── schema.sql    # 테이블 생성 스크립트
+  ├── integrity.sql # 제약 조건 및 트리거
+  └── security.sql  # RLS 보안 정책
+/lib                # Mock Data & Utilities
+/types              # TypeScript Definitions
 ```
 
 ---
