@@ -181,7 +181,7 @@ export default function TargetDetailPage() {
             onClick={startEditingName}
             className="px-3 py-2 rounded-full bg-white border border-[#F0E6D2] text-[#A69785] text-[11px] font-black shadow-sm"
           >
-            수정하기
+            이름 수정
           </button>
         )}
       </header>

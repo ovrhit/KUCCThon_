@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { ChevronLeft, Circle, Square, RefreshCcw, Check, Loader2, CameraOff, Calendar as CalendarIcon } from "lucide-react";
+import { ChevronLeft, Square, RefreshCcw, Check, Loader2, CameraOff, Calendar as CalendarIcon } from "lucide-react";
 import Link from "next/link";
 import { MOCK_TARGETS, PUBLIC_DEMO_USER_ID, resolveTargetId } from "@/lib/mockData";
 import { fetchDemoTargets } from "@/lib/targets";
@@ -19,15 +19,18 @@ function RecordContent() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const recordingCanvasRef = useRef<HTMLCanvasElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const thumbnailTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const thumbnailPromiseRef = useRef<Promise<Blob | null> | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const recordingStreamRef = useRef<MediaStream | null>(null);
+  const recordingStartedAtRef = useRef<number | null>(null);
+  const recordingDurationRef = useRef<number | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [thumbnailBlob, setThumbnailBlob] = useState<Blob | null>(null);
+  const [thumbnailPreviewUrl, setThumbnailPreviewUrl] = useState<string | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState(10);
   
@@ -80,10 +83,19 @@ function RecordContent() {
   }, []);
 
   useEffect(() => {
+    if (!thumbnailBlob) {
+      setThumbnailPreviewUrl(null);
+      return;
+    }
+
+    const url = URL.createObjectURL(thumbnailBlob);
+    setThumbnailPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [thumbnailBlob]);
+
+  useEffect(() => {
     return () => {
-      if (thumbnailTimerRef.current) {
-        clearTimeout(thumbnailTimerRef.current);
-      }
+      thumbnailPromiseRef.current = null;
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
@@ -102,22 +114,72 @@ function RecordContent() {
     return () => clearInterval(interval);
   }, [isRecording, timeLeft]);
 
-  const captureThumbnail = () => {
-    if (videoRef.current && canvasRef.current) {
-      const video = videoRef.current;
-      if (!video.videoWidth || !video.videoHeight) return;
-
+  const captureThumbnailFromBlob = (blob: Blob, fallbackDuration: number | null) => {
+    return new Promise<Blob | null>((resolve) => {
       const canvas = canvasRef.current;
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob((blob) => {
-          if (blob) setThumbnailBlob(blob);
-        }, "image/jpeg", 0.8);
+      if (!canvas) {
+        resolve(null);
+        return;
       }
-    }
+
+      const video = document.createElement("video");
+      const objectUrl = URL.createObjectURL(blob);
+      let isDone = false;
+
+      const finish = (thumbnail: Blob | null) => {
+        if (isDone) return;
+        isDone = true;
+        window.clearTimeout(timeoutId);
+        URL.revokeObjectURL(objectUrl);
+        video.removeAttribute("src");
+        video.load();
+        resolve(thumbnail);
+      };
+
+      const drawFrame = () => {
+        if (!video.videoWidth || !video.videoHeight) {
+          finish(null);
+          return;
+        }
+
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          finish(null);
+          return;
+        }
+
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((thumbnail) => finish(thumbnail), "image/jpeg", 0.8);
+      };
+
+      const timeoutId = window.setTimeout(() => finish(null), 6000);
+
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = "metadata";
+      video.onseeked = drawFrame;
+      video.onerror = () => finish(null);
+      video.onloadedmetadata = () => {
+        const duration =
+          Number.isFinite(video.duration) && video.duration > 0
+            ? video.duration
+            : fallbackDuration ?? 0;
+        if (Number.isFinite(duration) && duration > 0.2) {
+          try {
+            video.currentTime = duration / 2;
+          } catch (seekError) {
+            console.error("Thumbnail seek error:", seekError);
+            finish(null);
+          }
+          return;
+        }
+
+        drawFrame();
+      };
+      video.src = objectUrl;
+    });
   };
 
   const drawLandscapeFrame = () => {
@@ -153,11 +215,8 @@ function RecordContent() {
     if (!stream || !recordingCanvasRef.current) return;
     chunksRef.current = [];
     setThumbnailBlob(null);
-
-    if (thumbnailTimerRef.current) {
-      clearTimeout(thumbnailTimerRef.current);
-      thumbnailTimerRef.current = null;
-    }
+    thumbnailPromiseRef.current = null;
+    recordingDurationRef.current = null;
 
     const mimeType = MediaRecorder.isTypeSupported("video/mp4;codecs=h264") 
       ? "video/mp4;codecs=h264" 
@@ -186,18 +245,31 @@ function RecordContent() {
       };
       mediaRecorder.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: mediaRecorder.mimeType });
+        const previewUrl = URL.createObjectURL(blob);
+        const thumbnailPromise = captureThumbnailFromBlob(blob, recordingDurationRef.current);
+
         setRecordedBlob(blob);
-        setVideoUrl(URL.createObjectURL(blob));
+        setVideoUrl(previewUrl);
+        thumbnailPromiseRef.current = thumbnailPromise;
+        thumbnailPromise
+          .then((thumbnail) => {
+            if (thumbnailPromiseRef.current !== thumbnailPromise) return;
+            if (thumbnail) setThumbnailBlob(thumbnail);
+            thumbnailPromiseRef.current = Promise.resolve(thumbnail);
+          })
+          .catch((thumbnailError) => {
+            console.error("Thumbnail capture error:", thumbnailError);
+            if (thumbnailPromiseRef.current === thumbnailPromise) {
+              thumbnailPromiseRef.current = null;
+            }
+          });
         recordingStreamRef.current?.getVideoTracks().forEach(track => track.stop());
         recordingStreamRef.current = null;
       };
 
       mediaRecorderRef.current = mediaRecorder;
+      recordingStartedAtRef.current = performance.now();
       mediaRecorder.start();
-      thumbnailTimerRef.current = setTimeout(() => {
-        captureThumbnail();
-        thumbnailTimerRef.current = null;
-      }, 1500);
       setIsRecording(true);
       setTimeLeft(10);
     } catch (e) {
@@ -207,28 +279,25 @@ function RecordContent() {
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
-      if (thumbnailTimerRef.current) {
-        clearTimeout(thumbnailTimerRef.current);
-        thumbnailTimerRef.current = null;
-      }
-
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
         animationFrameRef.current = null;
       }
 
       mediaRecorderRef.current.stop();
+      if (recordingStartedAtRef.current) {
+        recordingDurationRef.current = (performance.now() - recordingStartedAtRef.current) / 1000;
+      }
+      recordingStartedAtRef.current = null;
       setIsRecording(false);
       stream?.getTracks().forEach(track => track.stop());
     }
   };
 
   const retakeVideo = () => {
-    if (thumbnailTimerRef.current) {
-      clearTimeout(thumbnailTimerRef.current);
-      thumbnailTimerRef.current = null;
-    }
-
+    thumbnailPromiseRef.current = null;
+    recordingStartedAtRef.current = null;
+    recordingDurationRef.current = null;
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
@@ -254,12 +323,14 @@ function RecordContent() {
       
       const logId = crypto.randomUUID();
       const videoExt = recordedBlob.type.includes("mp4") ? "mp4" : "webm";
+      const savedMessage = message.trim() || "(무제)";
+      const resolvedThumbnailBlob = thumbnailBlob ?? await thumbnailPromiseRef.current;
       
       // CRITICAL FIX: Ensure no leading slashes and explicit bucket usage
       const cleanUserId = userId.replace(/^\//, "");
       const cleanTargetId = targetId.replace(/^\//, "");
       const videoPath = `${cleanUserId}/${cleanTargetId}/${logId}.${videoExt}`;
-      const thumbPath = thumbnailBlob ? `${cleanUserId}/${cleanTargetId}/${logId}.jpg` : null;
+      const thumbPath = resolvedThumbnailBlob ? `${cleanUserId}/${cleanTargetId}/${logId}.jpg` : null;
 
       console.log("Starting upload process...", { bucket: VIDEO_BUCKET, videoPath, thumbPath });
 
@@ -270,10 +341,10 @@ function RecordContent() {
       if (videoErr) throw videoErr;
 
       // 2. Upload Thumbnail if the browser was able to capture one.
-      if (thumbnailBlob && thumbPath) {
+      if (resolvedThumbnailBlob && thumbPath) {
         const { error: thumbErr } = await supabase.storage
           .from(VIDEO_BUCKET)
-          .upload(thumbPath, thumbnailBlob, { contentType: "image/jpeg", upsert: false });
+          .upload(thumbPath, resolvedThumbnailBlob, { contentType: "image/jpeg", upsert: false });
         if (thumbErr) throw thumbErr;
       }
 
@@ -284,7 +355,7 @@ function RecordContent() {
           id: logId,
           user_id: userId,
           target_id: targetId,
-          message,
+          message: savedMessage,
           video_url: videoPath,
           thumbnail_url: thumbPath,
           recorded_date: recordedDate,
@@ -345,9 +416,15 @@ function RecordContent() {
             <video src={videoUrl!} autoPlay loop playsInline className="w-full h-full object-cover" />
           )}
 
-          {recordedBlob && message && (
+          {recordedBlob && thumbnailPreviewUrl && (
+            <div className="absolute top-4 right-4 w-28 aspect-video rounded-lg overflow-hidden border border-white/30 shadow-xl bg-black/40">
+              <img src={thumbnailPreviewUrl} alt="썸네일" className="w-full h-full object-cover" />
+            </div>
+          )}
+
+          {recordedBlob && message.trim() && (
             <div className="absolute bottom-6 left-6 right-6 text-white drop-shadow-lg z-10">
-              <p className="text-lg font-bold leading-snug bg-black/20 backdrop-blur-sm p-2 rounded-lg inline-block">{message}</p>
+              <p className="text-lg font-bold leading-snug bg-black/20 backdrop-blur-sm p-2 rounded-lg inline-block">{message.trim()}</p>
             </div>
           )}
         </div>
@@ -398,7 +475,7 @@ function RecordContent() {
               </button>
               <button 
                 onClick={handleSubmit}
-                disabled={isUploading || !message.trim()}
+                disabled={isUploading}
                 className="bg-white text-black px-10 py-3.5 rounded-full font-black text-sm flex items-center space-x-2 disabled:opacity-30 transition-all active:scale-95"
               >
                 {isUploading ? <Loader2 className="animate-spin" size={18} /> : <Check size={18} />}
