@@ -21,7 +21,7 @@ export default function ProfilePage() {
       router.refresh();
     } catch (err) {
       console.error("Reset error:", err);
-      alert("초기화 중 오류가 발생했습니다. Supabase reset 정책이 적용되어 있는지 확인해주세요.");
+      alert(err instanceof Error ? err.message : "초기화 중 오류가 발생했습니다.");
     } finally {
       setIsResetting(false);
     }

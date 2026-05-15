@@ -9,6 +9,23 @@ type ResetLogRow = {
   thumbnail_url: string | null;
 };
 
+function isRlsOrPermissionError(error: { code?: string; message?: string }) {
+  const message = error.message?.toLowerCase() ?? "";
+  return (
+    error.code === "42501" ||
+    message.includes("row-level security") ||
+    message.includes("permission denied")
+  );
+}
+
+function requireResetPolicy(error: { code?: string; message?: string }) {
+  if (isRlsOrPermissionError(error)) {
+    throw new Error("Supabase에서 005_public_demo_reset.sql을 먼저 실행해야 테스트 데이터 초기화가 가능합니다.");
+  }
+
+  throw error;
+}
+
 function compactStoragePaths(logs: ResetLogRow[] | null) {
   return Array.from(
     new Set(
@@ -43,7 +60,7 @@ export async function resetDemoData() {
     .delete()
     .eq("user_id", PUBLIC_DEMO_USER_ID);
 
-  if (logsDeleteError) throw logsDeleteError;
+  if (logsDeleteError) requireResetPolicy(logsDeleteError);
 
   const { error: customTargetsDeleteError } = await supabase
     .from("targets")
@@ -51,7 +68,7 @@ export async function resetDemoData() {
     .eq("user_id", PUBLIC_DEMO_USER_ID)
     .not("id", "in", `(${DEFAULT_TARGET_IDS.join(",")})`);
 
-  if (customTargetsDeleteError) throw customTargetsDeleteError;
+  if (customTargetsDeleteError) requireResetPolicy(customTargetsDeleteError);
 
   const temporaryNameResults = await Promise.all(
     DEFAULT_TARGET_IDS.map((targetId) =>
