@@ -171,7 +171,7 @@ function RecordContent() {
   };
 
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col relative">
+    <div className="h-dvh max-h-dvh overflow-hidden bg-black text-white flex flex-col relative">
       <header className="absolute top-0 left-0 right-0 p-6 flex items-center justify-between z-20 bg-gradient-to-b from-black/80 to-transparent">
         <Link href="/" className="p-2 -ml-2 text-white">
           <ChevronLeft size={28} />
@@ -199,8 +199,11 @@ function RecordContent() {
         )}
       </header>
 
-      <div className="flex-1 flex items-center justify-center bg-gray-950 px-4">
-        <div className="w-full aspect-video bg-gray-900 rounded-2xl overflow-hidden shadow-2xl relative border border-white/5">
+      <div className="flex-1 min-h-0 flex items-center justify-center bg-gray-950 px-4 pt-24 pb-3">
+        <div
+          className="w-full max-h-full aspect-video bg-gray-900 rounded-2xl overflow-hidden shadow-2xl relative border border-white/5"
+          style={{ maxWidth: "min(100%, calc((100dvh - 13rem) * 16 / 9))" }}
+        >
           {error ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center space-y-4">
               <CameraOff size={48} className="text-gray-600" />
@@ -225,7 +228,11 @@ function RecordContent() {
         </div>
       </div>
 
-      <div className="h-64 bg-black flex flex-col p-6 z-20">
+      <div
+        className={`${
+          recordedBlob ? "h-[clamp(13.5rem,34dvh,16rem)]" : "h-[clamp(7.5rem,22dvh,11rem)]"
+        } shrink-0 bg-black flex flex-col px-6 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] z-20`}
+      >
         {!recordedBlob && !error ? (
           <div className="flex-1 flex items-center justify-center">
             {isRecording ? (
@@ -239,7 +246,7 @@ function RecordContent() {
             )}
           </div>
         ) : recordedBlob ? (
-          <div className="flex flex-col h-full justify-between space-y-4">
+          <div className="flex flex-col h-full justify-between space-y-3">
             <div className="space-y-3">
               <div className="flex items-center space-x-2">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-white/50">{recordedDate} To.</span>
