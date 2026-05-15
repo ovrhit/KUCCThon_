@@ -21,6 +21,7 @@ function RecordContent() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const thumbnailPromiseRef = useRef<Promise<Blob | null> | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const cameraPromiseRef = useRef<Promise<MediaStream | null> | null>(null);
   const sourceStreamRef = useRef<MediaStream | null>(null);
   const recordingStreamRef = useRef<MediaStream | null>(null);
   const recordingStartedAtRef = useRef<number | null>(null);
@@ -44,6 +45,7 @@ function RecordContent() {
   const [error, setError] = useState<string | null>(null);
 
   const stopSourceStream = useCallback(() => {
+    cameraPromiseRef.current = null;
     sourceStreamRef.current?.getTracks().forEach(track => track.stop());
     sourceStreamRef.current = null;
     setStream(null);
@@ -54,8 +56,16 @@ function RecordContent() {
   }, []);
 
   const startCamera = useCallback(async () => {
+    if (sourceStreamRef.current) {
+      return sourceStreamRef.current;
+    }
+
+    if (cameraPromiseRef.current) {
+      return cameraPromiseRef.current;
+    }
+
     setError(null);
-    try {
+    cameraPromiseRef.current = (async () => {
       const constraints = {
         video: { 
           facingMode: "user", 
@@ -66,23 +76,35 @@ function RecordContent() {
         audio: true,
       };
 
-      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-      sourceStreamRef.current = mediaStream;
-      setStream(mediaStream);
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play().catch(e => console.error("Auto-play failed:", e));
-        };
+      try {
+        const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+        sourceStreamRef.current = mediaStream;
+        setStream(mediaStream);
+        
+        if (videoRef.current) {
+          videoRef.current.srcObject = mediaStream;
+          videoRef.current.onloadedmetadata = () => {
+            videoRef.current?.play().catch(e => console.error("Auto-play failed:", e));
+          };
+        }
+        return mediaStream;
+      } catch (err) {
+        console.error("Error accessing camera:", err);
+        setError("카메라를 시작할 수 없습니다. 권한 설정을 확인해주세요.");
+        return null;
+      } finally {
+        cameraPromiseRef.current = null;
       }
-      return mediaStream;
-    } catch (err) {
-      console.error("Error accessing camera:", err);
-      setError("카메라를 시작할 수 없습니다. 권한 설정을 확인해주세요.");
-      return null;
-    }
+    })();
+
+    return cameraPromiseRef.current;
   }, []);
+
+  useEffect(() => {
+    if (!recordedBlob) {
+      void startCamera();
+    }
+  }, [recordedBlob, startCamera]);
 
   useEffect(() => {
     fetchDemoTargets().then((items) => {
@@ -437,12 +459,12 @@ function RecordContent() {
                 autoPlay
                 playsInline
                 muted
-                className={`w-full h-full object-cover scale-x-[-1] ${isRecording ? "opacity-100" : "opacity-0"}`}
+                className={`w-full h-full object-cover scale-x-[-1] ${stream ? "opacity-100" : "opacity-0"}`}
               />
-              {!isRecording && (
+              {!stream && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center text-white/60">
                   <CameraOff size={42} className="text-white/30" />
-                  <p className="text-sm font-bold">녹화 버튼을 누르면 카메라와 마이크가 켜집니다.</p>
+                  <p className="text-sm font-bold">카메라를 준비하는 중입니다.</p>
                 </div>
               )}
             </>
