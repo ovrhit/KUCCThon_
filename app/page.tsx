@@ -2,17 +2,15 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Check, Pencil, Plus, Video, X } from "lucide-react";
+import { Plus, Video, X } from "lucide-react";
 import { MOCK_TARGETS } from "@/lib/mockData";
-import { createDemoTarget, fetchDemoTargets, updateDemoTargetName } from "@/lib/targets";
+import { createDemoTarget, fetchDemoTargets } from "@/lib/targets";
 import { Target } from "@/types";
 
 export default function Home() {
   const [targets, setTargets] = useState<Target[]>(MOCK_TARGETS);
   const [isAdding, setIsAdding] = useState(false);
   const [newName, setNewName] = useState("");
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -36,28 +34,6 @@ export default function Home() {
     }
   };
 
-  const startEditing = (target: Target) => {
-    setEditingId(target.id);
-    setEditingName(target.name);
-  };
-
-  const saveTargetName = async () => {
-    if (!editingId || !editingName.trim() || isSaving) return;
-
-    setIsSaving(true);
-    try {
-      const updated = await updateDemoTargetName(editingId, editingName);
-      setTargets((current) => current.map((target) => (target.id === updated.id ? updated : target)));
-      setEditingId(null);
-      setEditingName("");
-    } catch (error) {
-      console.error("Update target error:", error);
-      alert("이름을 변경하지 못했습니다.");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   return (
     <div className="min-h-screen p-6 space-y-10 pb-32 bg-[#FFFCF2]">
       <header className="mt-8 flex justify-between items-start">
@@ -68,32 +44,11 @@ export default function Home() {
       </header>
 
       <div className="grid grid-cols-1 gap-3">
-        {targets.map((target) => {
-          const isEditing = editingId === target.id;
-
-          return (
-            <div
-              key={target.id}
-              className="group relative flex items-center justify-between gap-3 bg-white hover:bg-[#FFFACD] p-4 rounded-2xl transition-all border border-[#F0E6D2] shadow-sm"
-            >
-              {isEditing ? (
-                <div className="flex-1 flex items-center space-x-4 min-w-0">
-                  <div className={`w-3 h-3 rounded-full shrink-0 ${target.color}`} />
-                  <div className="min-w-0">
-                    <input
-                      autoFocus
-                      value={editingName}
-                      onChange={(event) => setEditingName(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") saveTargetName();
-                        if (event.key === "Escape") setEditingId(null);
-                      }}
-                      className="w-full bg-transparent text-sm font-bold text-[#5C4F41] outline-none border-b border-[#D4B872]"
-                    />
-                    <p className="text-[10px] text-[#A69785] font-medium truncate">{target.description}</p>
-                  </div>
-                </div>
-              ) : (
+        {targets.map((target) => (
+          <div
+            key={target.id}
+            className="group relative flex items-center justify-between gap-3 bg-white hover:bg-[#FFFACD] p-4 rounded-2xl transition-all border border-[#F0E6D2] shadow-sm"
+          >
               <Link href={`/target/${target.id}`} className="flex-1 flex items-center space-x-4 min-w-0">
                 <div className={`w-3 h-3 rounded-full shrink-0 ${target.color}`} />
                 <div className="min-w-0">
@@ -101,26 +56,6 @@ export default function Home() {
                   <p className="text-[10px] text-[#A69785] font-medium truncate">{target.description}</p>
                 </div>
               </Link>
-              )}
-
-              {isEditing ? (
-                <button
-                  onClick={saveTargetName}
-                  disabled={isSaving}
-                  className="p-3 bg-[#4A3F35] text-white rounded-xl shadow-sm active:scale-95 transition-all disabled:opacity-50"
-                  aria-label="이름 저장"
-                >
-                  <Check size={18} />
-                </button>
-              ) : (
-                <button
-                  onClick={() => startEditing(target)}
-                  className="p-3 bg-white rounded-xl shadow-sm active:scale-95 transition-all text-[#A69785] border border-[#F0E6D2]"
-                  aria-label={`${target.name} 이름 변경`}
-                >
-                  <Pencil size={18} />
-                </button>
-              )}
 
               <Link
                 href={`/record?target=${target.id}`}
@@ -129,9 +64,8 @@ export default function Home() {
               >
                 <Video size={18} />
               </Link>
-            </div>
-          );
-        })}
+          </div>
+        ))}
 
         {!isAdding ? (
           <button

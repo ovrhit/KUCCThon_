@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Loader2, Play, X } from "lucide-react";
 import { resolveTargetId } from "@/lib/mockData";
-import { fetchDemoTargets } from "@/lib/targets";
+import { fetchDemoTargets, updateDemoTargetName } from "@/lib/targets";
 import { supabase } from "@/lib/supabase/client";
 import { VIDEO_BUCKET } from "@/lib/supabase/paths";
 import { GratitudeLog, Target } from "@/types";
@@ -19,6 +19,9 @@ export default function TargetDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedLog, setSelectedLog] = useState<GratitudeLog | null>(null);
   const [calendarDate, setCalendarDate] = useState(() => new Date());
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editingName, setEditingName] = useState("");
+  const [isSavingName, setIsSavingName] = useState(false);
 
   const currentYear = calendarDate.getFullYear();
   const currentMonth = calendarDate.getMonth() + 1;
@@ -26,7 +29,9 @@ export default function TargetDetailPage() {
   useEffect(() => {
     async function fetchTarget() {
       const targets = await fetchDemoTargets();
-      setTarget(targets.find((item) => item.id === targetId) ?? null);
+      const nextTarget = targets.find((item) => item.id === targetId) ?? null;
+      setTarget(nextTarget);
+      setEditingName(nextTarget?.name ?? "");
     }
 
     fetchTarget();
@@ -64,8 +69,6 @@ export default function TargetDetailPage() {
     if (targetId) fetchLogs();
   }, [targetId]);
 
-  if (!target) return <div className="p-6 text-center mt-20">대상을 찾을 수 없습니다.</div>;
-
   const getPublicUrl = (path: string) => {
     if (path.startsWith("http")) return path;
     return supabase.storage.from(VIDEO_BUCKET).getPublicUrl(path).data.publicUrl;
@@ -78,6 +81,36 @@ export default function TargetDetailPage() {
   const moveMonth = (offset: number) => {
     setCalendarDate((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1));
   };
+
+  const startEditingName = () => {
+    if (!target) return;
+    setEditingName(target.name);
+    setIsEditingName(true);
+  };
+
+  const cancelEditingName = () => {
+    setEditingName(target?.name ?? "");
+    setIsEditingName(false);
+  };
+
+  const saveTargetName = async () => {
+    if (!target || !editingName.trim() || isSavingName) return;
+
+    setIsSavingName(true);
+    try {
+      const updated = await updateDemoTargetName(target.id, editingName);
+      setTarget(updated);
+      setEditingName(updated.name);
+      setIsEditingName(false);
+    } catch (error) {
+      console.error("Update target error:", error);
+      alert("이름을 변경하지 못했습니다.");
+    } finally {
+      setIsSavingName(false);
+    }
+  };
+
+  if (!target) return <div className="p-6 text-center mt-20">대상을 찾을 수 없습니다.</div>;
 
   const calendarDays = Array.from({ length: daysInMonth }, (_, index) => {
     const day = index + 1;
@@ -111,8 +144,46 @@ export default function TargetDetailPage() {
         <Link href="/" className="p-2 -ml-2 text-[#4A3F35]">
           <ChevronLeft size={28} />
         </Link>
-        <h1 className="text-xl font-black text-[#4A3F35] tracking-tight">{target.name}</h1>
-        <div className="w-10" />
+        <div className="flex-1 px-3 text-center min-w-0">
+          {isEditingName ? (
+            <input
+              autoFocus
+              value={editingName}
+              onChange={(event) => setEditingName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") saveTargetName();
+                if (event.key === "Escape") cancelEditingName();
+              }}
+              className="w-full max-w-48 bg-white border border-[#D4B872]/60 rounded-xl px-3 py-2 text-center text-sm font-black text-[#4A3F35] outline-none"
+            />
+          ) : (
+            <h1 className="text-xl font-black text-[#4A3F35] tracking-tight truncate">{target.name}</h1>
+          )}
+        </div>
+        {isEditingName ? (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={cancelEditingName}
+              className="px-3 py-2 text-[11px] font-bold text-[#A69785]"
+            >
+              취소
+            </button>
+            <button
+              onClick={saveTargetName}
+              disabled={isSavingName || !editingName.trim()}
+              className="min-w-12 px-3 py-2 rounded-full bg-[#4A3F35] text-white text-[11px] font-black disabled:opacity-40"
+            >
+              {isSavingName ? <Loader2 size={14} className="mx-auto animate-spin" /> : "저장"}
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={startEditingName}
+            className="px-3 py-2 rounded-full bg-white border border-[#F0E6D2] text-[#A69785] text-[11px] font-black shadow-sm"
+          >
+            수정하기
+          </button>
+        )}
       </header>
 
       <div className="px-6 mt-2">

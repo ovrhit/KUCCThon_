@@ -48,6 +48,16 @@ function getDateRange(mode: string, year: string | null | undefined, month: stri
   };
 }
 
+function getVideoExtension(path: string) {
+  const extension = path.split(".").pop();
+  return extension && /^[a-z0-9]+$/i.test(extension) ? extension : "mp4";
+}
+
+function buildDownloadFilename(targetName: string | undefined, log: ReelLog) {
+  const safeTargetName = (targetName || "hanpyeon").replace(/[\r\n\\/]/g, "-");
+  return `${safeTargetName}-${log.recorded_date}.${getVideoExtension(log.video_url)}`;
+}
+
 function ReplayContent() {
   const params = useParams();
   const searchParams = useSearchParams();
@@ -114,9 +124,20 @@ function ReplayContent() {
     setCurrentIndex((index) => (index + 1 < logs.length ? index + 1 : index));
   };
 
+  const getDownloadUrl = () => {
+    if (!currentLog) return null;
+
+    const downloadUrl = new URL("/api/videos/download", window.location.origin);
+    downloadUrl.searchParams.set("path", currentLog.video_url);
+    downloadUrl.searchParams.set("name", buildDownloadFilename(target?.name, currentLog));
+    return downloadUrl.toString();
+  };
+
   const shareReel = async () => {
-    const url = window.location.href;
-    const text = `${target?.name ?? "감사"} ${title}`;
+    const url = getDownloadUrl();
+    if (!url) return;
+
+    const text = `${target?.name ?? "감사"} ${title} 영상 다운로드`;
     const nav = navigator as Navigator & {
       share?: (data: ShareData) => Promise<void>;
       clipboard?: Clipboard;
