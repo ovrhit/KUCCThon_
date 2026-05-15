@@ -1,8 +1,13 @@
-export type TargetType = '부모님' | '친구' | '연인' | '나 자신';
+export interface Target {
+  id: string;
+  name: string;
+  description: string;
+  color: string;
+}
 
 export interface GratitudeLog {
   id: string;
-  targetName: TargetType;
+  targetId: string;
   message: string;
   videoUrl: string;
   createdAt: string;

@@ -2,16 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, PlusSquare, Play, Calendar } from "lucide-react";
+import { Home, User } from "lucide-react";
 
 const BottomNavigation = () => {
   const pathname = usePathname();
 
   const navItems = [
     { href: "/", icon: Home, label: "홈" },
-    { href: "/record", icon: PlusSquare, label: "기록" },
-    { href: "/replay/all", icon: Play, label: "리플레이" },
-    { href: "/calendar", icon: Calendar, label: "캘린더" },
+    { href: "/profile", icon: User, label: "마이페이지" },
   ];
 
   return (
