@@ -21,6 +21,7 @@ function RecordContent() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const thumbnailPromiseRef = useRef<Promise<Blob | null> | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const sourceStreamRef = useRef<MediaStream | null>(null);
   const recordingStreamRef = useRef<MediaStream | null>(null);
   const recordingStartedAtRef = useRef<number | null>(null);
   const recordingDurationRef = useRef<number | null>(null);
@@ -41,7 +42,16 @@ function RecordContent() {
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Initialize camera
+  const stopSourceStream = useCallback(() => {
+    sourceStreamRef.current?.getTracks().forEach(track => track.stop());
+    sourceStreamRef.current = null;
+    setStream(null);
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  }, []);
+
   const startCamera = useCallback(async () => {
     setError(null);
     try {
@@ -56,6 +66,7 @@ function RecordContent() {
       };
 
       const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      sourceStreamRef.current = mediaStream;
       setStream(mediaStream);
       
       if (videoRef.current) {
@@ -64,16 +75,13 @@ function RecordContent() {
           videoRef.current?.play().catch(e => console.error("Auto-play failed:", e));
         };
       }
+      return mediaStream;
     } catch (err) {
       console.error("Error accessing camera:", err);
       setError("카메라를 시작할 수 없습니다. 권한 설정을 확인해주세요.");
+      return null;
     }
   }, []);
-
-  useEffect(() => {
-    if (!recordedBlob) startCamera();
-    return () => stream?.getTracks().forEach(track => track.stop());
-  }, [recordedBlob, startCamera]);
 
   useEffect(() => {
     fetchDemoTargets().then((items) => {
@@ -99,6 +107,7 @@ function RecordContent() {
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
+      sourceStreamRef.current?.getTracks().forEach(track => track.stop());
       recordingStreamRef.current?.getTracks().forEach(track => track.stop());
     };
   }, []);
@@ -211,8 +220,12 @@ function RecordContent() {
     animationFrameRef.current = requestAnimationFrame(drawLandscapeFrame);
   };
 
-  const startRecording = () => {
-    if (!stream || !recordingCanvasRef.current) return;
+  const startRecording = async () => {
+    if (isRecording || !recordingCanvasRef.current) return;
+
+    const mediaStream = await startCamera();
+    if (!mediaStream || !recordingCanvasRef.current) return;
+
     chunksRef.current = [];
     setThumbnailBlob(null);
     thumbnailPromiseRef.current = null;
@@ -235,7 +248,7 @@ function RecordContent() {
       const canvasStream = canvas.captureStream(30);
       const mixedStream = new MediaStream([
         ...canvasStream.getVideoTracks(),
-        ...stream.getAudioTracks(),
+        ...mediaStream.getAudioTracks(),
       ]);
       recordingStreamRef.current = mixedStream;
 
@@ -273,6 +286,7 @@ function RecordContent() {
       setIsRecording(true);
       setTimeLeft(10);
     } catch (e) {
+      stopSourceStream();
       alert("녹화를 시작할 수 없습니다.");
     }
   };
@@ -290,7 +304,7 @@ function RecordContent() {
       }
       recordingStartedAtRef.current = null;
       setIsRecording(false);
-      stream?.getTracks().forEach(track => track.stop());
+      stopSourceStream();
     }
   };
 
@@ -305,12 +319,12 @@ function RecordContent() {
 
     recordingStreamRef.current?.getTracks().forEach(track => track.stop());
     recordingStreamRef.current = null;
+    stopSourceStream();
 
     setRecordedBlob(null);
     setThumbnailBlob(null);
     setVideoUrl(null);
     setTimeLeft(10);
-    startCamera();
   };
 
   const handleSubmit = async () => {
@@ -408,10 +422,24 @@ function RecordContent() {
             <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center space-y-4">
               <CameraOff size={48} className="text-gray-600" />
               <p className="text-sm text-gray-400">{error}</p>
-              <button onClick={startCamera} className="px-6 py-2 bg-white text-black rounded-full text-xs font-bold">다시 시도</button>
+              <button onClick={startRecording} className="px-6 py-2 bg-white text-black rounded-full text-xs font-bold">다시 녹화</button>
             </div>
           ) : !recordedBlob ? (
-            <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover scale-x-[-1]" />
+            <>
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className={`w-full h-full object-cover scale-x-[-1] ${isRecording ? "opacity-100" : "opacity-0"}`}
+              />
+              {!isRecording && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center text-white/60">
+                  <CameraOff size={42} className="text-white/30" />
+                  <p className="text-sm font-bold">녹화 버튼을 누르면 카메라와 마이크가 켜집니다.</p>
+                </div>
+              )}
+            </>
           ) : (
             <video src={videoUrl!} autoPlay loop playsInline className="w-full h-full object-cover" />
           )}
