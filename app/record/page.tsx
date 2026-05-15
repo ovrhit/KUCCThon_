@@ -16,6 +16,7 @@ function RecordContent() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const thumbnailTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -65,6 +66,14 @@ function RecordContent() {
     return () => stream?.getTracks().forEach(track => track.stop());
   }, [recordedBlob, startCamera]);
 
+  useEffect(() => {
+    return () => {
+      if (thumbnailTimerRef.current) {
+        clearTimeout(thumbnailTimerRef.current);
+      }
+    };
+  }, []);
+
   // Timer logic
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -79,6 +88,8 @@ function RecordContent() {
   const captureThumbnail = () => {
     if (videoRef.current && canvasRef.current) {
       const video = videoRef.current;
+      if (!video.videoWidth || !video.videoHeight) return;
+
       const canvas = canvasRef.current;
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
@@ -86,7 +97,7 @@ function RecordContent() {
       if (ctx) {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         canvas.toBlob((blob) => {
-          setThumbnailBlob(blob);
+          if (blob) setThumbnailBlob(blob);
         }, "image/jpeg", 0.8);
       }
     }
@@ -95,6 +106,13 @@ function RecordContent() {
   const startRecording = () => {
     if (!stream) return;
     chunksRef.current = [];
+    setThumbnailBlob(null);
+
+    if (thumbnailTimerRef.current) {
+      clearTimeout(thumbnailTimerRef.current);
+      thumbnailTimerRef.current = null;
+    }
+
     const mimeType = MediaRecorder.isTypeSupported("video/mp4;codecs=h264") 
       ? "video/mp4;codecs=h264" 
       : "video/webm;codecs=vp8,opus";
@@ -108,11 +126,14 @@ function RecordContent() {
         const blob = new Blob(chunksRef.current, { type: mediaRecorder.mimeType });
         setRecordedBlob(blob);
         setVideoUrl(URL.createObjectURL(blob));
-        captureThumbnail();
       };
 
       mediaRecorderRef.current = mediaRecorder;
       mediaRecorder.start();
+      thumbnailTimerRef.current = setTimeout(() => {
+        captureThumbnail();
+        thumbnailTimerRef.current = null;
+      }, 1500);
       setIsRecording(true);
       setTimeLeft(10);
     } catch (e) {
@@ -122,6 +143,11 @@ function RecordContent() {
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
+      if (thumbnailTimerRef.current) {
+        clearTimeout(thumbnailTimerRef.current);
+        thumbnailTimerRef.current = null;
+      }
+
       mediaRecorderRef.current.stop();
       setIsRecording(false);
       stream?.getTracks().forEach(track => track.stop());
@@ -129,6 +155,11 @@ function RecordContent() {
   };
 
   const retakeVideo = () => {
+    if (thumbnailTimerRef.current) {
+      clearTimeout(thumbnailTimerRef.current);
+      thumbnailTimerRef.current = null;
+    }
+
     setRecordedBlob(null);
     setThumbnailBlob(null);
     setVideoUrl(null);

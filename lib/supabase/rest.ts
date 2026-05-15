@@ -12,6 +12,7 @@ export type StoredGratitudeLog = {
   user_id: string;
   target_id: string;
   video_url: string;
+  thumbnail_url?: string | null;
   message: string;
   recorded_date: string;
   created_at?: string;
@@ -117,7 +118,12 @@ export async function insertGratitudeLog(input: Omit<StoredGratitudeLog, "create
   return withResolvedVideoUrl(rows[0]);
 }
 
-export async function listTargetLogs(params: { targetId: string; userId?: string }) {
+export async function listTargetLogs(params: {
+  targetId: string;
+  userId?: string;
+  startDate?: string;
+  endDate?: string;
+}) {
   const filters = [
     `target_id=eq.${encodeURIComponent(params.targetId)}`,
     "order=recorded_date.asc",
@@ -125,6 +131,14 @@ export async function listTargetLogs(params: { targetId: string; userId?: string
 
   if (params.userId) {
     filters.push(`user_id=eq.${encodeURIComponent(params.userId)}`);
+  }
+
+  if (params.startDate) {
+    filters.push(`recorded_date=gte.${encodeURIComponent(params.startDate)}`);
+  }
+
+  if (params.endDate) {
+    filters.push(`recorded_date=lte.${encodeURIComponent(params.endDate)}`);
   }
 
   const rows = await supabaseRequest<StoredGratitudeLog[]>(

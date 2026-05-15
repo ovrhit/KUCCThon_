@@ -56,7 +56,12 @@ export async function createGratitudeLog(input: {
   }
 }
 
-export async function getTargetReelLogs(input: { targetId: string; userId?: string }) {
+export async function getTargetReelLogs(input: {
+  targetId: string;
+  userId?: string;
+  startDate?: string;
+  endDate?: string;
+}) {
   if (!input.targetId) {
     throw new Error("targetId is required.");
   }
