@@ -1,3 +1,5 @@
+SET client_encoding = 'UTF8';
+
 -- ==========================================
 -- 한편 (Hanpyeon) PostgreSQL Schema
 -- Local Testing Version (Part A)
