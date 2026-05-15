@@ -146,19 +146,28 @@ function RecordContent() {
       
       const logId = crypto.randomUUID();
       const videoExt = recordedBlob.type.includes("mp4") ? "mp4" : "webm";
-      const videoPath = `${userId}/${targetId}/${logId}.${videoExt}`;
-      const thumbPath = `${userId}/${targetId}/${logId}.jpg`;
+      
+      // CRITICAL FIX: Ensure no leading slashes and explicit bucket usage
+      const cleanUserId = userId.replace(/^\//, "");
+      const cleanTargetId = targetId.replace(/^\//, "");
+      const videoPath = `${cleanUserId}/${cleanTargetId}/${logId}.${videoExt}`;
+      const thumbPath = `${cleanUserId}/${cleanTargetId}/${logId}.jpg`;
 
+      console.log("Starting upload process...", { bucket: VIDEO_BUCKET, videoPath, thumbPath });
+
+      // 1. Upload Video
       const { error: videoErr } = await supabase.storage
         .from(VIDEO_BUCKET)
-        .upload(videoPath, recordedBlob);
+        .upload(videoPath, recordedBlob, { contentType: recordedBlob.type, upsert: false });
       if (videoErr) throw videoErr;
 
+      // 2. Upload Thumbnail
       const { error: thumbErr } = await supabase.storage
         .from(VIDEO_BUCKET)
-        .upload(thumbPath, thumbnailBlob);
+        .upload(thumbPath, thumbnailBlob, { contentType: "image/jpeg", upsert: false });
       if (thumbErr) throw thumbErr;
 
+      // 3. Insert DB Record
       const { error: dbErr } = await supabase
         .from("gratitude_logs")
         .insert({
@@ -176,8 +185,9 @@ function RecordContent() {
       alert("기록이 저장되었습니다!");
       router.push(`/target/${targetId}`);
     } catch (err) {
-      console.error("Upload error:", err);
-      alert("업로드 실패: " + (err instanceof Error ? err.message : "알 수 없는 오류"));
+      console.error("Upload error caught:", err);
+      const msg = err instanceof Error ? err.message : "알 수 없는 오류";
+      alert(`업로드 실패: ${msg}\n\n도움말: Vercel 환경변수 URL 끝에 /가 있는지 확인하고 Redeploy 해주세요.`);
     } finally {
       setIsUploading(false);
     }
