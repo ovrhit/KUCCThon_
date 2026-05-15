@@ -33,6 +33,7 @@ function RecordContent() {
   const [thumbnailBlob, setThumbnailBlob] = useState<Blob | null>(null);
   const [thumbnailPreviewUrl, setThumbnailPreviewUrl] = useState<string | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [isPreparingThumbnail, setIsPreparingThumbnail] = useState(false);
   const [timeLeft, setTimeLeft] = useState(10);
   
   const [targets, setTargets] = useState<Target[]>(MOCK_TARGETS);
@@ -228,6 +229,7 @@ function RecordContent() {
 
     chunksRef.current = [];
     setThumbnailBlob(null);
+    setIsPreparingThumbnail(false);
     thumbnailPromiseRef.current = null;
     recordingDurationRef.current = null;
 
@@ -263,11 +265,13 @@ function RecordContent() {
 
         setRecordedBlob(blob);
         setVideoUrl(previewUrl);
+        setIsPreparingThumbnail(true);
         thumbnailPromiseRef.current = thumbnailPromise;
         thumbnailPromise
           .then((thumbnail) => {
             if (thumbnailPromiseRef.current !== thumbnailPromise) return;
             if (thumbnail) setThumbnailBlob(thumbnail);
+            setIsPreparingThumbnail(false);
             thumbnailPromiseRef.current = Promise.resolve(thumbnail);
           })
           .catch((thumbnailError) => {
@@ -275,6 +279,7 @@ function RecordContent() {
             if (thumbnailPromiseRef.current === thumbnailPromise) {
               thumbnailPromiseRef.current = null;
             }
+            setIsPreparingThumbnail(false);
           });
         recordingStreamRef.current?.getVideoTracks().forEach(track => track.stop());
         recordingStreamRef.current = null;
@@ -323,6 +328,7 @@ function RecordContent() {
 
     setRecordedBlob(null);
     setThumbnailBlob(null);
+    setIsPreparingThumbnail(false);
     setVideoUrl(null);
     setTimeLeft(10);
   };
@@ -440,14 +446,14 @@ function RecordContent() {
                 </div>
               )}
             </>
+          ) : thumbnailPreviewUrl ? (
+            <img src={thumbnailPreviewUrl} alt="썸네일" className="w-full h-full object-cover" />
+          ) : isPreparingThumbnail ? (
+            <div className="absolute inset-0 flex items-center justify-center text-sm font-bold text-white/60">
+              썸네일 준비 중...
+            </div>
           ) : (
             <video src={videoUrl!} autoPlay loop playsInline className="w-full h-full object-cover" />
-          )}
-
-          {recordedBlob && thumbnailPreviewUrl && (
-            <div className="absolute top-4 right-4 w-28 aspect-video rounded-lg overflow-hidden border border-white/30 shadow-xl bg-black/40">
-              <img src={thumbnailPreviewUrl} alt="썸네일" className="w-full h-full object-cover" />
-            </div>
           )}
 
           {recordedBlob && message.trim() && (
