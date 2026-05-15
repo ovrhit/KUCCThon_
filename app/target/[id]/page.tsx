@@ -53,11 +53,11 @@ export default function TargetDetailPage() {
       {/* Recent Logs Preview */}
       <div className="px-6 mt-10 space-y-4">
         <h3 className="font-bold text-gray-400 text-[11px] uppercase tracking-widest pl-1">Recent Logs</h3>
-        <div className="grid grid-cols-3 gap-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="aspect-[9/16] bg-gray-200 rounded-2xl overflow-hidden relative shadow-sm">
-              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-              <span className="absolute bottom-2 left-2 text-[10px] font-bold text-white tracking-wider">05.1{i}</span>
+        <div className="grid grid-cols-2 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="aspect-video bg-gray-100 rounded-2xl overflow-hidden relative shadow-sm border border-gray-200/50">
+              <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
+              <span className="absolute bottom-3 left-3 text-[10px] font-bold text-white tracking-wider">05.1{i}</span>
             </div>
           ))}
         </div>
