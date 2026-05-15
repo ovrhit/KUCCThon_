@@ -23,3 +23,20 @@ CREATE TRIGGER update_profiles_modtime
     BEFORE UPDATE ON profiles
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
+
+-- 4. 비디오 경로 무결성 검사 (user_id/target_id/filename.mp4 형식을 강제)
+CREATE OR REPLACE FUNCTION validate_video_path()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- video_url이 '유저ID/타겟ID/'로 시작하는지 확인
+    IF NEW.video_url NOT LIKE (NEW.user_id::text || '/' || NEW.target_id::text || '/%') THEN
+        RAISE EXCEPTION 'Invalid video path. Must follow {user_id}/{target_id}/filename.mp4 format.';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER check_video_path_integrity
+    BEFORE INSERT OR UPDATE ON gratitude_logs
+    FOR EACH ROW
+    EXECUTE FUNCTION validate_video_path();
