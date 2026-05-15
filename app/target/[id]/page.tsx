@@ -1,26 +1,45 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Loader2, Play, X } from "lucide-react";
-import { MOCK_TARGETS, resolveTargetId } from "@/lib/mockData";
+import { resolveTargetId } from "@/lib/mockData";
+import { fetchDemoTargets, updateDemoTargetName } from "@/lib/targets";
 import { supabase } from "@/lib/supabase/client";
 import { VIDEO_BUCKET } from "@/lib/supabase/paths";
-import { GratitudeLog } from "@/types";
+import { GratitudeLog, Target } from "@/types";
 
 export default function TargetDetailPage() {
   const params = useParams();
   const targetId = resolveTargetId(params?.id as string);
-  const target = MOCK_TARGETS.find((item) => item.id === targetId);
 
+  const [target, setTarget] = useState<Target | null>(null);
   const [logs, setLogs] = useState<GratitudeLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedLog, setSelectedLog] = useState<GratitudeLog | null>(null);
   const [calendarDate, setCalendarDate] = useState(() => new Date());
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editingName, setEditingName] = useState("");
+  const [isSavingName, setIsSavingName] = useState(false);
+  const [pendingDeleteLog, setPendingDeleteLog] = useState<GratitudeLog | null>(null);
+  const [isDeletingLog, setIsDeletingLog] = useState(false);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTriggeredRef = useRef(false);
 
   const currentYear = calendarDate.getFullYear();
   const currentMonth = calendarDate.getMonth() + 1;
+
+  useEffect(() => {
+    async function fetchTarget() {
+      const targets = await fetchDemoTargets();
+      const nextTarget = targets.find((item) => item.id === targetId) ?? null;
+      setTarget(nextTarget);
+      setEditingName(nextTarget?.name ?? "");
+    }
+
+    fetchTarget();
+  }, [targetId]);
 
   useEffect(() => {
     async function fetchLogs() {
@@ -54,8 +73,6 @@ export default function TargetDetailPage() {
     if (targetId) fetchLogs();
   }, [targetId]);
 
-  if (!target) return <div className="p-6 text-center mt-20">대상을 찾을 수 없습니다.</div>;
-
   const getPublicUrl = (path: string) => {
     if (path.startsWith("http")) return path;
     return supabase.storage.from(VIDEO_BUCKET).getPublicUrl(path).data.publicUrl;
@@ -68,6 +85,109 @@ export default function TargetDetailPage() {
   const moveMonth = (offset: number) => {
     setCalendarDate((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1));
   };
+
+  const clearLogPressTimer = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const startLogPress = (log: GratitudeLog) => {
+    clearLogPressTimer();
+    longPressTriggeredRef.current = false;
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      setPendingDeleteLog(log);
+    }, 650);
+  };
+
+  const endLogPress = () => {
+    clearLogPressTimer();
+    window.setTimeout(() => {
+      longPressTriggeredRef.current = false;
+    }, 0);
+  };
+
+  const openLog = (log: GratitudeLog) => {
+    if (longPressTriggeredRef.current) {
+      longPressTriggeredRef.current = false;
+      return;
+    }
+
+    setSelectedLog(log);
+  };
+
+  const getStoragePaths = (log: GratitudeLog) => {
+    return [log.videoUrl, log.thumbnailUrl].filter(
+      (path): path is string => typeof path === "string" && path.length > 0 && !path.startsWith("http"),
+    );
+  };
+
+  const deletePendingLog = async () => {
+    if (!pendingDeleteLog || isDeletingLog) return;
+
+    setIsDeletingLog(true);
+    try {
+      const storagePaths = getStoragePaths(pendingDeleteLog);
+      if (storagePaths.length > 0) {
+        const { error: storageError } = await supabase.storage
+          .from(VIDEO_BUCKET)
+          .remove(storagePaths);
+
+        if (storageError) {
+          console.warn("Storage delete skipped:", storageError);
+        }
+      }
+
+      const { error: deleteError } = await supabase
+        .from("gratitude_logs")
+        .delete()
+        .eq("id", pendingDeleteLog.id)
+        .eq("target_id", targetId);
+
+      if (deleteError) throw deleteError;
+
+      setLogs((current) => current.filter((log) => log.id !== pendingDeleteLog.id));
+      setSelectedLog((current) => (current?.id === pendingDeleteLog.id ? null : current));
+      setPendingDeleteLog(null);
+    } catch (deleteError) {
+      console.error("Delete log error:", deleteError);
+      alert("기록을 삭제하지 못했습니다. Supabase 삭제 정책이 적용되어 있는지 확인해주세요.");
+    } finally {
+      setIsDeletingLog(false);
+    }
+  };
+
+  const startEditingName = () => {
+    if (!target) return;
+    setEditingName(target.name);
+    setIsEditingName(true);
+  };
+
+  const cancelEditingName = () => {
+    setEditingName(target?.name ?? "");
+    setIsEditingName(false);
+  };
+
+  const saveTargetName = async () => {
+    if (!target || !editingName.trim() || isSavingName) return;
+
+    setIsSavingName(true);
+    try {
+      const updated = await updateDemoTargetName(target.id, editingName);
+      setTarget(updated);
+      setEditingName(updated.name);
+      setIsEditingName(false);
+    } catch (error) {
+      console.error("Update target error:", error);
+      alert("이름을 변경하지 못했습니다.");
+    } finally {
+      setIsSavingName(false);
+    }
+  };
+
+  if (!target) return <div className="p-6 text-center mt-20">대상을 찾을 수 없습니다.</div>;
 
   const calendarDays = Array.from({ length: daysInMonth }, (_, index) => {
     const day = index + 1;
@@ -101,8 +221,46 @@ export default function TargetDetailPage() {
         <Link href="/" className="p-2 -ml-2 text-[#4A3F35]">
           <ChevronLeft size={28} />
         </Link>
-        <h1 className="text-xl font-black text-[#4A3F35] tracking-tight">{target.name}</h1>
-        <div className="w-10" />
+        <div className="flex-1 px-3 text-center min-w-0">
+          {isEditingName ? (
+            <input
+              autoFocus
+              value={editingName}
+              onChange={(event) => setEditingName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") saveTargetName();
+                if (event.key === "Escape") cancelEditingName();
+              }}
+              className="w-full max-w-48 bg-white border border-[#D4B872]/60 rounded-xl px-3 py-2 text-center text-sm font-black text-[#4A3F35] outline-none"
+            />
+          ) : (
+            <h1 className="text-xl font-black text-[#4A3F35] tracking-tight truncate">{target.name}</h1>
+          )}
+        </div>
+        {isEditingName ? (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={cancelEditingName}
+              className="px-3 py-2 text-[11px] font-bold text-[#A69785]"
+            >
+              취소
+            </button>
+            <button
+              onClick={saveTargetName}
+              disabled={isSavingName || !editingName.trim()}
+              className="min-w-12 px-3 py-2 rounded-full bg-[#4A3F35] text-white text-[11px] font-black disabled:opacity-40"
+            >
+              {isSavingName ? <Loader2 size={14} className="mx-auto animate-spin" /> : "저장"}
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={startEditingName}
+            className="px-3 py-2 rounded-full bg-white border border-[#F0E6D2] text-[#A69785] text-[11px] font-black shadow-sm"
+          >
+            이름 수정
+          </button>
+        )}
       </header>
 
       <div className="px-6 mt-2">
@@ -148,7 +306,16 @@ export default function TargetDetailPage() {
               {calendarDays.map(({ day, log }) => (
                 <button
                   key={day}
-                  onClick={() => log && setSelectedLog(log)}
+                  onPointerDown={() => log && startLogPress(log)}
+                  onPointerUp={endLogPress}
+                  onPointerLeave={clearLogPressTimer}
+                  onPointerCancel={clearLogPressTimer}
+                  onContextMenu={(event) => {
+                    if (!log) return;
+                    event.preventDefault();
+                    setPendingDeleteLog(log);
+                  }}
+                  onClick={() => log && openLog(log)}
                   className={`aspect-square rounded-xl flex items-center justify-center text-xs font-bold transition-all relative overflow-hidden ${
                     log ? "scale-105 shadow-mdss border-2 border-[#D4B872] bg-white" : "bg-[#F9F7F0] text-[#D4B872] border border-[#F0E6D2]"
                   }`}
@@ -171,14 +338,23 @@ export default function TargetDetailPage() {
             {logs.slice(0, 4).map((log) => (
               <button
                 key={log.id}
-                onClick={() => setSelectedLog(log)}
+                onPointerDown={() => startLogPress(log)}
+                onPointerUp={endLogPress}
+                onPointerLeave={clearLogPressTimer}
+                onPointerCancel={clearLogPressTimer}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setPendingDeleteLog(log);
+                }}
+                onClick={() => openLog(log)}
                 className="aspect-video bg-white rounded-2xl overflow-hidden relative shadow-sm border border-[#F0E6D2] active:scale-95 transition-transform"
               >
                 {renderLogPreview(log, "absolute inset-0 w-full h-full object-cover")}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
-                <span className="absolute bottom-3 left-3 text-[10px] font-bold text-white tracking-wider">
-                  {log.recordedDate.split("-").slice(1).join(".")}
-                </span>
+                <div className="absolute bottom-3 left-3 right-3 flex items-center gap-2 text-[10px] font-bold text-white tracking-wider">
+                  <span className="shrink-0">{log.recordedDate.split("-").slice(1).join(".")}</span>
+                  <span className="min-w-0 truncate text-left">{log.message}</span>
+                </div>
               </button>
             ))}
           </div>
@@ -209,6 +385,33 @@ export default function TargetDetailPage() {
             <div className="absolute bottom-8 left-8 right-8 text-white pointer-events-none drop-shadow-md">
               <p className="text-xl font-black italic tracking-tight">{selectedLog.message}</p>
               <p className="text-[10px] text-white/50 font-bold mt-2 uppercase tracking-widest">{selectedLog.recordedDate}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingDeleteLog && (
+        <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-6 animate-in fade-in duration-150">
+          <div className="w-full max-w-sm bg-white rounded-2xl p-5 shadow-2xl border border-[#F0E6D2]">
+            <h2 className="text-lg font-black text-[#4A3F35] mb-2">기록 삭제</h2>
+            <p className="text-sm text-[#A69785] leading-relaxed mb-5">
+              {pendingDeleteLog.recordedDate} 기록을 삭제할까요?
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setPendingDeleteLog(null)}
+                disabled={isDeletingLog}
+                className="px-4 py-2 rounded-full text-xs font-black text-[#A69785] disabled:opacity-40"
+              >
+                취소
+              </button>
+              <button
+                onClick={deletePendingLog}
+                disabled={isDeletingLog}
+                className="min-w-16 px-4 py-2 rounded-full bg-[#D9534F] text-white text-xs font-black disabled:opacity-40"
+              >
+                {isDeletingLog ? <Loader2 size={14} className="mx-auto animate-spin" /> : "삭제"}
+              </button>
             </div>
           </div>
         </div>

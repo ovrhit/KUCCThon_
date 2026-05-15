@@ -2,11 +2,13 @@
 
 import { useState, useRef, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { ChevronLeft, Circle, Square, RefreshCcw, Check, Loader2, CameraOff, Calendar as CalendarIcon } from "lucide-react";
+import { ChevronLeft, Square, RefreshCcw, Check, Loader2, CameraOff, Calendar as CalendarIcon } from "lucide-react";
 import Link from "next/link";
 import { MOCK_TARGETS, PUBLIC_DEMO_USER_ID, resolveTargetId } from "@/lib/mockData";
+import { fetchDemoTargets } from "@/lib/targets";
 import { supabase } from "@/lib/supabase/client";
 import { VIDEO_BUCKET } from "@/lib/supabase/paths";
+import { Target } from "@/types";
 
 function RecordContent() {
   const searchParams = useSearchParams();
@@ -15,27 +17,57 @@ function RecordContent() {
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const recordingCanvasRef = useRef<HTMLCanvasElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const thumbnailTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const thumbnailPromiseRef = useRef<Promise<Blob | null> | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const cameraPromiseRef = useRef<Promise<MediaStream | null> | null>(null);
+  const sourceStreamRef = useRef<MediaStream | null>(null);
+  const recordingStreamRef = useRef<MediaStream | null>(null);
+  const recordingStartedAtRef = useRef<number | null>(null);
+  const recordingDurationRef = useRef<number | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [thumbnailBlob, setThumbnailBlob] = useState<Blob | null>(null);
+  const [thumbnailPreviewUrl, setThumbnailPreviewUrl] = useState<string | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [isPreparingThumbnail, setIsPreparingThumbnail] = useState(false);
   const [timeLeft, setTimeLeft] = useState(10);
   
+  const [targets, setTargets] = useState<Target[]>(MOCK_TARGETS);
   const [targetId, setTargetId] = useState(initialTarget);
   const [message, setMessage] = useState("");
   const [recordedDate, setRecordedDate] = useState(new Date().toISOString().split('T')[0]);
   const [isUploading, setIsUploading] = useState(false);
+  const [isCheckingDailyLimit, setIsCheckingDailyLimit] = useState(true);
+  const [dailyLogExists, setDailyLogExists] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Initialize camera
+  const stopSourceStream = useCallback(() => {
+    cameraPromiseRef.current = null;
+    sourceStreamRef.current?.getTracks().forEach(track => track.stop());
+    sourceStreamRef.current = null;
+    setStream(null);
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  }, []);
+
   const startCamera = useCallback(async () => {
+    if (sourceStreamRef.current) {
+      return sourceStreamRef.current;
+    }
+
+    if (cameraPromiseRef.current) {
+      return cameraPromiseRef.current;
+    }
+
     setError(null);
-    try {
+    cameraPromiseRef.current = (async () => {
       const constraints = {
         video: { 
           facingMode: "user", 
@@ -46,31 +78,106 @@ function RecordContent() {
         audio: true,
       };
 
-      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-      setStream(mediaStream);
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play().catch(e => console.error("Auto-play failed:", e));
-        };
+      try {
+        const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+        sourceStreamRef.current = mediaStream;
+        setStream(mediaStream);
+        
+        if (videoRef.current) {
+          videoRef.current.srcObject = mediaStream;
+          videoRef.current.onloadedmetadata = () => {
+            videoRef.current?.play().catch(e => console.error("Auto-play failed:", e));
+          };
+        }
+        return mediaStream;
+      } catch (err) {
+        console.error("Error accessing camera:", err);
+        setError("카메라를 시작할 수 없습니다. 권한 설정을 확인해주세요.");
+        return null;
+      } finally {
+        cameraPromiseRef.current = null;
       }
-    } catch (err) {
-      console.error("Error accessing camera:", err);
-      setError("카메라를 시작할 수 없습니다. 권한 설정을 확인해주세요.");
+    })();
+
+    return cameraPromiseRef.current;
+  }, []);
+
+  const getCurrentUserId = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    return user?.id || PUBLIC_DEMO_USER_ID;
+  }, []);
+
+  const checkDailyLogExists = useCallback(async (nextTargetId: string, nextRecordedDate: string) => {
+    const userId = await getCurrentUserId();
+    const { data, error: fetchError } = await supabase
+      .from("gratitude_logs")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("target_id", nextTargetId)
+      .eq("recorded_date", nextRecordedDate)
+      .limit(1);
+
+    if (fetchError) {
+      console.error("Daily limit check error:", fetchError);
+      return false;
     }
+
+    return Boolean(data?.length);
+  }, [getCurrentUserId]);
+
+  useEffect(() => {
+    let isAlive = true;
+
+    async function checkLimit() {
+      setIsCheckingDailyLimit(true);
+      const exists = await checkDailyLogExists(targetId, recordedDate);
+      if (!isAlive) return;
+
+      setDailyLogExists(exists);
+      setIsCheckingDailyLimit(false);
+      if (exists && !recordedBlob) {
+        stopSourceStream();
+      }
+    }
+
+    checkLimit();
+    return () => {
+      isAlive = false;
+    };
+  }, [checkDailyLogExists, recordedBlob, recordedDate, stopSourceStream, targetId]);
+
+  useEffect(() => {
+    if (!recordedBlob && !isCheckingDailyLimit && !dailyLogExists) {
+      void startCamera();
+    }
+  }, [dailyLogExists, isCheckingDailyLimit, recordedBlob, startCamera]);
+
+  useEffect(() => {
+    fetchDemoTargets().then((items) => {
+      setTargets(items);
+      setTargetId((current) => (items.some((target) => target.id === current) ? current : items[0]?.id ?? current));
+    });
   }, []);
 
   useEffect(() => {
-    if (!recordedBlob) startCamera();
-    return () => stream?.getTracks().forEach(track => track.stop());
-  }, [recordedBlob, startCamera]);
+    if (!thumbnailBlob) {
+      setThumbnailPreviewUrl(null);
+      return;
+    }
+
+    const url = URL.createObjectURL(thumbnailBlob);
+    setThumbnailPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [thumbnailBlob]);
 
   useEffect(() => {
     return () => {
-      if (thumbnailTimerRef.current) {
-        clearTimeout(thumbnailTimerRef.current);
+      thumbnailPromiseRef.current = null;
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
       }
+      sourceStreamRef.current?.getTracks().forEach(track => track.stop());
+      recordingStreamRef.current?.getTracks().forEach(track => track.stop());
     };
   }, []);
 
@@ -85,86 +192,223 @@ function RecordContent() {
     return () => clearInterval(interval);
   }, [isRecording, timeLeft]);
 
-  const captureThumbnail = () => {
-    if (videoRef.current && canvasRef.current) {
-      const video = videoRef.current;
-      if (!video.videoWidth || !video.videoHeight) return;
-
+  const captureThumbnailFromBlob = (blob: Blob, fallbackDuration: number | null) => {
+    return new Promise<Blob | null>((resolve) => {
       const canvas = canvasRef.current;
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob((blob) => {
-          if (blob) setThumbnailBlob(blob);
-        }, "image/jpeg", 0.8);
+      if (!canvas) {
+        resolve(null);
+        return;
       }
-    }
+
+      const video = document.createElement("video");
+      const objectUrl = URL.createObjectURL(blob);
+      let isDone = false;
+
+      const finish = (thumbnail: Blob | null) => {
+        if (isDone) return;
+        isDone = true;
+        window.clearTimeout(timeoutId);
+        URL.revokeObjectURL(objectUrl);
+        video.removeAttribute("src");
+        video.load();
+        resolve(thumbnail);
+      };
+
+      const drawFrame = () => {
+        if (!video.videoWidth || !video.videoHeight) {
+          finish(null);
+          return;
+        }
+
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          finish(null);
+          return;
+        }
+
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((thumbnail) => finish(thumbnail), "image/jpeg", 0.8);
+      };
+
+      const timeoutId = window.setTimeout(() => finish(null), 6000);
+
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = "metadata";
+      video.onseeked = drawFrame;
+      video.onerror = () => finish(null);
+      video.onloadedmetadata = () => {
+        const duration =
+          Number.isFinite(video.duration) && video.duration > 0
+            ? video.duration
+            : fallbackDuration ?? 0;
+        if (Number.isFinite(duration) && duration > 0.2) {
+          try {
+            video.currentTime = duration / 2;
+          } catch (seekError) {
+            console.error("Thumbnail seek error:", seekError);
+            finish(null);
+          }
+          return;
+        }
+
+        drawFrame();
+      };
+      video.src = objectUrl;
+    });
   };
 
-  const startRecording = () => {
-    if (!stream) return;
+  const drawLandscapeFrame = () => {
+    const video = videoRef.current;
+    const canvas = recordingCanvasRef.current;
+    const ctx = canvas?.getContext("2d");
+
+    if (!video || !canvas || !ctx || !video.videoWidth || !video.videoHeight) {
+      animationFrameRef.current = requestAnimationFrame(drawLandscapeFrame);
+      return;
+    }
+
+    const canvasRatio = canvas.width / canvas.height;
+    const videoRatio = video.videoWidth / video.videoHeight;
+    let sx = 0;
+    let sy = 0;
+    let sw = video.videoWidth;
+    let sh = video.videoHeight;
+
+    if (videoRatio > canvasRatio) {
+      sw = video.videoHeight * canvasRatio;
+      sx = (video.videoWidth - sw) / 2;
+    } else {
+      sh = video.videoWidth / canvasRatio;
+      sy = (video.videoHeight - sh) / 2;
+    }
+
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+    animationFrameRef.current = requestAnimationFrame(drawLandscapeFrame);
+  };
+
+  const startRecording = async () => {
+    if (isRecording || !recordingCanvasRef.current) return;
+
+    if (isCheckingDailyLimit) return;
+
+    const exists = dailyLogExists || await checkDailyLogExists(targetId, recordedDate);
+    if (exists) {
+      setDailyLogExists(true);
+      stopSourceStream();
+      alert("이 대상은 선택한 날짜에 이미 기록을 남겼습니다.");
+      return;
+    }
+
+    const mediaStream = await startCamera();
+    if (!mediaStream || !recordingCanvasRef.current) return;
+
     chunksRef.current = [];
     setThumbnailBlob(null);
-
-    if (thumbnailTimerRef.current) {
-      clearTimeout(thumbnailTimerRef.current);
-      thumbnailTimerRef.current = null;
-    }
+    setIsPreparingThumbnail(false);
+    thumbnailPromiseRef.current = null;
+    recordingDurationRef.current = null;
 
     const mimeType = MediaRecorder.isTypeSupported("video/mp4;codecs=h264") 
       ? "video/mp4;codecs=h264" 
       : "video/webm;codecs=vp8,opus";
 
     try {
-      const mediaRecorder = new MediaRecorder(stream, { mimeType });
+      const canvas = recordingCanvasRef.current;
+      canvas.width = 1280;
+      canvas.height = 720;
+
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      drawLandscapeFrame();
+
+      const canvasStream = canvas.captureStream(30);
+      const mixedStream = new MediaStream([
+        ...canvasStream.getVideoTracks(),
+        ...mediaStream.getAudioTracks(),
+      ]);
+      recordingStreamRef.current = mixedStream;
+
+      const mediaRecorder = new MediaRecorder(mixedStream, { mimeType });
       mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
       mediaRecorder.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: mediaRecorder.mimeType });
+        const previewUrl = URL.createObjectURL(blob);
+        const thumbnailPromise = captureThumbnailFromBlob(blob, recordingDurationRef.current);
+
         setRecordedBlob(blob);
-        setVideoUrl(URL.createObjectURL(blob));
+        setVideoUrl(previewUrl);
+        setIsPreparingThumbnail(true);
+        thumbnailPromiseRef.current = thumbnailPromise;
+        thumbnailPromise
+          .then((thumbnail) => {
+            if (thumbnailPromiseRef.current !== thumbnailPromise) return;
+            if (thumbnail) setThumbnailBlob(thumbnail);
+            setIsPreparingThumbnail(false);
+            thumbnailPromiseRef.current = Promise.resolve(thumbnail);
+          })
+          .catch((thumbnailError) => {
+            console.error("Thumbnail capture error:", thumbnailError);
+            if (thumbnailPromiseRef.current === thumbnailPromise) {
+              thumbnailPromiseRef.current = null;
+            }
+            setIsPreparingThumbnail(false);
+          });
+        recordingStreamRef.current?.getVideoTracks().forEach(track => track.stop());
+        recordingStreamRef.current = null;
       };
 
       mediaRecorderRef.current = mediaRecorder;
+      recordingStartedAtRef.current = performance.now();
       mediaRecorder.start();
-      thumbnailTimerRef.current = setTimeout(() => {
-        captureThumbnail();
-        thumbnailTimerRef.current = null;
-      }, 1500);
       setIsRecording(true);
       setTimeLeft(10);
     } catch (e) {
+      stopSourceStream();
       alert("녹화를 시작할 수 없습니다.");
     }
   };
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
-      if (thumbnailTimerRef.current) {
-        clearTimeout(thumbnailTimerRef.current);
-        thumbnailTimerRef.current = null;
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
 
       mediaRecorderRef.current.stop();
+      if (recordingStartedAtRef.current) {
+        recordingDurationRef.current = (performance.now() - recordingStartedAtRef.current) / 1000;
+      }
+      recordingStartedAtRef.current = null;
       setIsRecording(false);
-      stream?.getTracks().forEach(track => track.stop());
+      stopSourceStream();
     }
   };
 
   const retakeVideo = () => {
-    if (thumbnailTimerRef.current) {
-      clearTimeout(thumbnailTimerRef.current);
-      thumbnailTimerRef.current = null;
+    thumbnailPromiseRef.current = null;
+    recordingStartedAtRef.current = null;
+    recordingDurationRef.current = null;
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
     }
+
+    recordingStreamRef.current?.getTracks().forEach(track => track.stop());
+    recordingStreamRef.current = null;
+    stopSourceStream();
 
     setRecordedBlob(null);
     setThumbnailBlob(null);
+    setIsPreparingThumbnail(false);
     setVideoUrl(null);
     setTimeLeft(10);
-    startCamera();
   };
 
   const handleSubmit = async () => {
@@ -172,17 +416,24 @@ function RecordContent() {
     setIsUploading(true);
     
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const userId = user?.id || PUBLIC_DEMO_USER_ID;
+      const userId = await getCurrentUserId();
+      const exists = await checkDailyLogExists(targetId, recordedDate);
+      if (exists) {
+        setDailyLogExists(true);
+        alert("이 대상은 선택한 날짜에 이미 기록을 남겼습니다.");
+        return;
+      }
       
       const logId = crypto.randomUUID();
       const videoExt = recordedBlob.type.includes("mp4") ? "mp4" : "webm";
+      const savedMessage = message.trim() || "(무제)";
+      const resolvedThumbnailBlob = thumbnailBlob ?? await thumbnailPromiseRef.current;
       
       // CRITICAL FIX: Ensure no leading slashes and explicit bucket usage
       const cleanUserId = userId.replace(/^\//, "");
       const cleanTargetId = targetId.replace(/^\//, "");
       const videoPath = `${cleanUserId}/${cleanTargetId}/${logId}.${videoExt}`;
-      const thumbPath = thumbnailBlob ? `${cleanUserId}/${cleanTargetId}/${logId}.jpg` : null;
+      const thumbPath = resolvedThumbnailBlob ? `${cleanUserId}/${cleanTargetId}/${logId}.jpg` : null;
 
       console.log("Starting upload process...", { bucket: VIDEO_BUCKET, videoPath, thumbPath });
 
@@ -193,10 +444,10 @@ function RecordContent() {
       if (videoErr) throw videoErr;
 
       // 2. Upload Thumbnail if the browser was able to capture one.
-      if (thumbnailBlob && thumbPath) {
+      if (resolvedThumbnailBlob && thumbPath) {
         const { error: thumbErr } = await supabase.storage
           .from(VIDEO_BUCKET)
-          .upload(thumbPath, thumbnailBlob, { contentType: "image/jpeg", upsert: false });
+          .upload(thumbPath, resolvedThumbnailBlob, { contentType: "image/jpeg", upsert: false });
         if (thumbErr) throw thumbErr;
       }
 
@@ -207,13 +458,21 @@ function RecordContent() {
           id: logId,
           user_id: userId,
           target_id: targetId,
-          message,
+          message: savedMessage,
           video_url: videoPath,
           thumbnail_url: thumbPath,
           recorded_date: recordedDate,
         });
       
-      if (dbErr) throw dbErr;
+      if (dbErr) {
+        if (dbErr.code === "23505") {
+          setDailyLogExists(true);
+          alert("이 대상은 선택한 날짜에 이미 기록을 남겼습니다.");
+          return;
+        }
+
+        throw dbErr;
+      }
 
       alert("기록이 저장되었습니다!");
       router.push(`/target/${targetId}`);
@@ -260,33 +519,68 @@ function RecordContent() {
             <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center space-y-4">
               <CameraOff size={48} className="text-gray-600" />
               <p className="text-sm text-gray-400">{error}</p>
-              <button onClick={startCamera} className="px-6 py-2 bg-white text-black rounded-full text-xs font-bold">다시 시도</button>
+              <button onClick={startRecording} className="px-6 py-2 bg-white text-black rounded-full text-xs font-bold">다시 녹화</button>
             </div>
           ) : !recordedBlob ? (
-            <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover scale-x-[-1]" />
+            <>
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className={`w-full h-full object-cover scale-x-[-1] ${stream ? "opacity-100" : "opacity-0"}`}
+              />
+              {dailyLogExists ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center text-white/75">
+                  <CameraOff size={42} className="text-white/35" />
+                  <p className="text-sm font-bold">이 대상은 선택한 날짜에 이미 기록을 남겼습니다.</p>
+                  <p className="text-xs text-white/45">다른 대상을 선택하거나 날짜를 바꿔주세요.</p>
+                </div>
+              ) : !stream && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center text-white/60">
+                  <CameraOff size={42} className="text-white/30" />
+                  <p className="text-sm font-bold">카메라를 준비하는 중입니다.</p>
+                </div>
+              )}
+            </>
+          ) : thumbnailPreviewUrl ? (
+            <img src={thumbnailPreviewUrl} alt="썸네일" className="w-full h-full object-cover" />
+          ) : isPreparingThumbnail ? (
+            <div className="absolute inset-0 flex items-center justify-center text-sm font-bold text-white/60">
+              썸네일 준비 중...
+            </div>
           ) : (
             <video src={videoUrl!} autoPlay loop playsInline className="w-full h-full object-cover" />
           )}
 
-          {recordedBlob && message && (
+          {recordedBlob && message.trim() && (
             <div className="absolute bottom-6 left-6 right-6 text-white drop-shadow-lg z-10">
-              <p className="text-lg font-bold leading-snug bg-black/20 backdrop-blur-sm p-2 rounded-lg inline-block">{message}</p>
+              <p className="text-lg font-bold leading-snug bg-black/20 backdrop-blur-sm p-2 rounded-lg inline-block">{message.trim()}</p>
             </div>
           )}
         </div>
       </div>
 
       <canvas ref={canvasRef} className="hidden" />
+      <canvas ref={recordingCanvasRef} className="hidden" />
 
       <div className="h-64 bg-black flex flex-col p-6 z-20">
         {!recordedBlob && !error ? (
           <div className="flex-1 flex items-center justify-center">
-            {isRecording ? (
+            {dailyLogExists ? (
+              <div className="text-center text-xs font-bold text-white/45">
+                오늘 이 대상의 기록은 완료됐습니다.
+              </div>
+            ) : isRecording ? (
               <button onClick={stopRecording} className="w-20 h-20 bg-transparent border-4 border-red-500 rounded-full flex items-center justify-center">
                 <Square className="text-red-500" fill="currentColor" size={24} />
               </button>
             ) : (
-              <button onClick={startRecording} className="w-20 h-20 bg-transparent border-4 border-white rounded-full flex items-center justify-center active:scale-90 transition-transform">
+              <button
+                onClick={startRecording}
+                disabled={isCheckingDailyLimit}
+                className="w-20 h-20 bg-transparent border-4 border-white rounded-full flex items-center justify-center active:scale-90 transition-transform disabled:opacity-30"
+              >
                 <div className="w-16 h-16 bg-red-500 rounded-full" />
               </button>
             )}
@@ -301,7 +595,7 @@ function RecordContent() {
                   onChange={(e) => setTargetId(e.target.value)}
                   className="flex-1 bg-gray-900 text-white rounded-xl p-3 text-sm font-bold border border-white/10 outline-none"
                 >
-                  {MOCK_TARGETS.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  {targets.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </div>
               <input 
@@ -312,6 +606,11 @@ function RecordContent() {
                 maxLength={300}
                 className="w-full bg-gray-900 text-white rounded-xl p-4 text-sm font-medium border border-white/10 outline-none placeholder:text-gray-600"
               />
+              {dailyLogExists && (
+                <p className="text-xs font-bold text-red-300">
+                  선택한 대상은 이 날짜에 이미 기록이 있어 저장할 수 없습니다.
+                </p>
+              )}
             </div>
             
             <div className="flex justify-between items-center pb-4">
@@ -320,7 +619,7 @@ function RecordContent() {
               </button>
               <button 
                 onClick={handleSubmit}
-                disabled={isUploading || !message.trim()}
+                disabled={isUploading || isCheckingDailyLimit || dailyLogExists}
                 className="bg-white text-black px-10 py-3.5 rounded-full font-black text-sm flex items-center space-x-2 disabled:opacity-30 transition-all active:scale-95"
               >
                 {isUploading ? <Loader2 className="animate-spin" size={18} /> : <Check size={18} />}
