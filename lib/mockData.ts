@@ -35,4 +35,4 @@ export const MOCK_GRATITUDE_LOGS: GratitudeLog[] = [
     createdAt: "2024-05-12T22:00:00Z",
     recordedDate: "2024-05-12",
   },
-];
+] as GratitudeLog[];
