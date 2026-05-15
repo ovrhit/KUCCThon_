@@ -185,9 +185,10 @@ function RecordContent() {
       alert("기록이 저장되었습니다!");
       router.push(`/target/${targetId}`);
     } catch (err) {
-      console.error("Upload error caught:", err);
-      const msg = err instanceof Error ? err.message : "알 수 없는 오류";
-      alert(`업로드 실패: ${msg}\n\n도움말: Vercel 환경변수 URL 끝에 /가 있는지 확인하고 Redeploy 해주세요.`);
+      console.error("DEBUG - Upload error:", err);
+      // Show full error details to the user for immediate diagnosis
+      const fullError = JSON.stringify(err, Object.getOwnPropertyNames(err));
+      alert(`업로드 실패 상세: ${fullError}`);
     } finally {
       setIsUploading(false);
     }
