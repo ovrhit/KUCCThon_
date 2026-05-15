@@ -1,9 +1,9 @@
 export interface Target {
   id: string;
-  slug?: string;
   name: string;
   description: string;
   color: string;
+  slug?: string;
 }
 
 export interface GratitudeLog {
@@ -11,7 +11,7 @@ export interface GratitudeLog {
   targetId: string;
   message: string;
   videoUrl: string;
-  thumbnailUrl?: string | null;
+  thumbnailUrl: string | null;
   createdAt: string;
   recordedDate: string;
 }
