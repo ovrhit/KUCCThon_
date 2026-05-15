@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Loader2, Play, X } from "lucide-react";
@@ -22,6 +22,10 @@ export default function TargetDetailPage() {
   const [isEditingName, setIsEditingName] = useState(false);
   const [editingName, setEditingName] = useState("");
   const [isSavingName, setIsSavingName] = useState(false);
+  const [pendingDeleteLog, setPendingDeleteLog] = useState<GratitudeLog | null>(null);
+  const [isDeletingLog, setIsDeletingLog] = useState(false);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTriggeredRef = useRef(false);
 
   const currentYear = calendarDate.getFullYear();
   const currentMonth = calendarDate.getMonth() + 1;
@@ -80,6 +84,79 @@ export default function TargetDetailPage() {
 
   const moveMonth = (offset: number) => {
     setCalendarDate((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1));
+  };
+
+  const clearLogPressTimer = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const startLogPress = (log: GratitudeLog) => {
+    clearLogPressTimer();
+    longPressTriggeredRef.current = false;
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      setPendingDeleteLog(log);
+    }, 650);
+  };
+
+  const endLogPress = () => {
+    clearLogPressTimer();
+    window.setTimeout(() => {
+      longPressTriggeredRef.current = false;
+    }, 0);
+  };
+
+  const openLog = (log: GratitudeLog) => {
+    if (longPressTriggeredRef.current) {
+      longPressTriggeredRef.current = false;
+      return;
+    }
+
+    setSelectedLog(log);
+  };
+
+  const getStoragePaths = (log: GratitudeLog) => {
+    return [log.videoUrl, log.thumbnailUrl].filter(
+      (path): path is string => typeof path === "string" && path.length > 0 && !path.startsWith("http"),
+    );
+  };
+
+  const deletePendingLog = async () => {
+    if (!pendingDeleteLog || isDeletingLog) return;
+
+    setIsDeletingLog(true);
+    try {
+      const storagePaths = getStoragePaths(pendingDeleteLog);
+      if (storagePaths.length > 0) {
+        const { error: storageError } = await supabase.storage
+          .from(VIDEO_BUCKET)
+          .remove(storagePaths);
+
+        if (storageError) {
+          console.warn("Storage delete skipped:", storageError);
+        }
+      }
+
+      const { error: deleteError } = await supabase
+        .from("gratitude_logs")
+        .delete()
+        .eq("id", pendingDeleteLog.id)
+        .eq("target_id", targetId);
+
+      if (deleteError) throw deleteError;
+
+      setLogs((current) => current.filter((log) => log.id !== pendingDeleteLog.id));
+      setSelectedLog((current) => (current?.id === pendingDeleteLog.id ? null : current));
+      setPendingDeleteLog(null);
+    } catch (deleteError) {
+      console.error("Delete log error:", deleteError);
+      alert("기록을 삭제하지 못했습니다. Supabase 삭제 정책이 적용되어 있는지 확인해주세요.");
+    } finally {
+      setIsDeletingLog(false);
+    }
   };
 
   const startEditingName = () => {
@@ -229,7 +306,16 @@ export default function TargetDetailPage() {
               {calendarDays.map(({ day, log }) => (
                 <button
                   key={day}
-                  onClick={() => log && setSelectedLog(log)}
+                  onPointerDown={() => log && startLogPress(log)}
+                  onPointerUp={endLogPress}
+                  onPointerLeave={clearLogPressTimer}
+                  onPointerCancel={clearLogPressTimer}
+                  onContextMenu={(event) => {
+                    if (!log) return;
+                    event.preventDefault();
+                    setPendingDeleteLog(log);
+                  }}
+                  onClick={() => log && openLog(log)}
                   className={`aspect-square rounded-xl flex items-center justify-center text-xs font-bold transition-all relative overflow-hidden ${
                     log ? "scale-105 shadow-md border-2 border-[#D4B872] bg-white" : "bg-[#F9F7F0] text-[#D4B872] border border-[#F0E6D2]"
                   }`}
@@ -252,7 +338,15 @@ export default function TargetDetailPage() {
             {logs.slice(0, 4).map((log) => (
               <button
                 key={log.id}
-                onClick={() => setSelectedLog(log)}
+                onPointerDown={() => startLogPress(log)}
+                onPointerUp={endLogPress}
+                onPointerLeave={clearLogPressTimer}
+                onPointerCancel={clearLogPressTimer}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setPendingDeleteLog(log);
+                }}
+                onClick={() => openLog(log)}
                 className="aspect-video bg-white rounded-2xl overflow-hidden relative shadow-sm border border-[#F0E6D2] active:scale-95 transition-transform"
               >
                 {renderLogPreview(log, "absolute inset-0 w-full h-full object-cover")}
@@ -291,6 +385,33 @@ export default function TargetDetailPage() {
             <div className="absolute bottom-8 left-8 right-8 text-white pointer-events-none drop-shadow-md">
               <p className="text-xl font-black italic tracking-tight">{selectedLog.message}</p>
               <p className="text-[10px] text-white/50 font-bold mt-2 uppercase tracking-widest">{selectedLog.recordedDate}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingDeleteLog && (
+        <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-6 animate-in fade-in duration-150">
+          <div className="w-full max-w-sm bg-white rounded-2xl p-5 shadow-2xl border border-[#F0E6D2]">
+            <h2 className="text-lg font-black text-[#4A3F35] mb-2">기록 삭제</h2>
+            <p className="text-sm text-[#A69785] leading-relaxed mb-5">
+              {pendingDeleteLog.recordedDate} 기록을 삭제할까요?
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setPendingDeleteLog(null)}
+                disabled={isDeletingLog}
+                className="px-4 py-2 rounded-full text-xs font-black text-[#A69785] disabled:opacity-40"
+              >
+                취소
+              </button>
+              <button
+                onClick={deletePendingLog}
+                disabled={isDeletingLog}
+                className="min-w-16 px-4 py-2 rounded-full bg-[#D9534F] text-white text-xs font-black disabled:opacity-40"
+              >
+                {isDeletingLog ? <Loader2 size={14} className="mx-auto animate-spin" /> : "삭제"}
+              </button>
             </div>
           </div>
         </div>
