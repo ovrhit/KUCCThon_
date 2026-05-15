@@ -13,7 +13,7 @@ export default function Home() {
   const addTarget = () => {
     if (!newName.trim()) return;
     const newTarget = {
-      id: `target-${Date.now()}`,
+      id: crypto.randomUUID(), // Use real UUID
       name: newName,
       description: "새로 추가된 보관함",
       color: "bg-emerald-500"
