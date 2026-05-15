@@ -50,15 +50,23 @@ export default function ProfilePage() {
         <h1 className="text-3xl font-black tracking-tighter text-[#4A3F35] uppercase">My Page</h1>
       </header>
 
-      {/* 프로필 카드 영역: 흰색 배경에 따뜻한 테두리 추가 */}
-      <div className="flex items-center space-x-4 mb-10 bg-white border border-[#F0E6D2] shadow-sm p-6 rounded-3xl">
-        {/* 화사한 레몬 컬러(#FFF67B)를 프로필 아이콘 배경으로 적용 */}
-        <div className="w-16 h-16 bg-[#FFF67B] rounded-2xl flex items-center justify-center text-[#5C4F41]">
-          <User size={32} />
-        </div>
-        <div>
-          <h2 className="text-xl font-bold italic text-[#5C4F41]">Grateful User</h2>
-          <p className="text-xs text-[#A69785] font-medium">감사를 기록한 지 12일째</p>
+      {/* 1. 바깥 레이어: 두툼한 노랑-주황 그라데이션 테두리 */}
+      <div className="mb-10 p-[4px] rounded-[2.2rem] bg-gradient-to-r from-[#FF9800] via-[#FFDB4B] to-[#FFE16A] shadow-[0_8px_30px_rgb(255,235,59,0.2)]">
+        
+        {/* 2. 내부 레이어: 흰색 박스 */}
+        <div className="flex items-center space-x-4 bg-white p-6 rounded-[2rem]">
+          
+          {/* 프로필 아이콘 박스 */}
+          <div className="w-16 h-16 bg-[#FFF67B] rounded-2xl flex items-center justify-center text-[#5C4F41] shadow-inner">
+            <User size={32} />
+          </div>
+
+          <div>
+            <h2 className="text-xl font-bold text-[#5C4F41] tracking-tight">Grateful User</h2>
+            <p className="text-xs text-[#A69785] font-medium flex items-center gap-1">
+              <span className="text-[#FF9800]">🔥</span> 감사를 기록한 지 12일째
+            </p>
+          </div>
         </div>
       </div>
 

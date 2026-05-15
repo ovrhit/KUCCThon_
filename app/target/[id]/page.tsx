@@ -129,7 +129,7 @@ export default function TargetDetailPage() {
             </div>
             <Link href={monthReplayHref} className="flex items-center space-x-1 text-xs bg-[#FFF67B] text-[#6B5700] px-4 py-2 rounded-full border border-[#D4B872]/50 shadow-sm hover:scale-105 transition-transform font-black">
               <Play size={14} fill="currentColor" />
-              <span>월 릴스</span>
+              <span>월 한편</span>
             </Link>
           </div>
 
@@ -150,7 +150,7 @@ export default function TargetDetailPage() {
                   key={day}
                   onClick={() => log && setSelectedLog(log)}
                   className={`aspect-square rounded-xl flex items-center justify-center text-xs font-bold transition-all relative overflow-hidden ${
-                    log ? "scale-105 shadow-md border-2 border-[#D4B872] bg-white" : "bg-[#F9F7F0] text-[#D4B872] border border-[#F0E6D2]"
+                    log ? "scale-105 shadow-mdss border-2 border-[#D4B872] bg-white" : "bg-[#F9F7F0] text-[#D4B872] border border-[#F0E6D2]"
                   }`}
                 >
                   {log ? renderLogPreview(log, "absolute inset-0 w-full h-full object-cover opacity-80") : null}
