@@ -5,8 +5,10 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { ChevronLeft, Circle, Square, RefreshCcw, Check, Loader2, CameraOff, Calendar as CalendarIcon } from "lucide-react";
 import Link from "next/link";
 import { MOCK_TARGETS, PUBLIC_DEMO_USER_ID, resolveTargetId } from "@/lib/mockData";
+import { fetchDemoTargets } from "@/lib/targets";
 import { supabase } from "@/lib/supabase/client";
 import { VIDEO_BUCKET } from "@/lib/supabase/paths";
+import { Target } from "@/types";
 
 function RecordContent() {
   const searchParams = useSearchParams();
@@ -15,8 +17,11 @@ function RecordContent() {
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const recordingCanvasRef = useRef<HTMLCanvasElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const thumbnailTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const recordingStreamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -26,6 +31,7 @@ function RecordContent() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState(10);
   
+  const [targets, setTargets] = useState<Target[]>(MOCK_TARGETS);
   const [targetId, setTargetId] = useState(initialTarget);
   const [message, setMessage] = useState("");
   const [recordedDate, setRecordedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -67,10 +73,21 @@ function RecordContent() {
   }, [recordedBlob, startCamera]);
 
   useEffect(() => {
+    fetchDemoTargets().then((items) => {
+      setTargets(items);
+      setTargetId((current) => (items.some((target) => target.id === current) ? current : items[0]?.id ?? current));
+    });
+  }, []);
+
+  useEffect(() => {
     return () => {
       if (thumbnailTimerRef.current) {
         clearTimeout(thumbnailTimerRef.current);
       }
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      recordingStreamRef.current?.getTracks().forEach(track => track.stop());
     };
   }, []);
 
@@ -103,8 +120,37 @@ function RecordContent() {
     }
   };
 
+  const drawLandscapeFrame = () => {
+    const video = videoRef.current;
+    const canvas = recordingCanvasRef.current;
+    const ctx = canvas?.getContext("2d");
+
+    if (!video || !canvas || !ctx || !video.videoWidth || !video.videoHeight) {
+      animationFrameRef.current = requestAnimationFrame(drawLandscapeFrame);
+      return;
+    }
+
+    const canvasRatio = canvas.width / canvas.height;
+    const videoRatio = video.videoWidth / video.videoHeight;
+    let sx = 0;
+    let sy = 0;
+    let sw = video.videoWidth;
+    let sh = video.videoHeight;
+
+    if (videoRatio > canvasRatio) {
+      sw = video.videoHeight * canvasRatio;
+      sx = (video.videoWidth - sw) / 2;
+    } else {
+      sh = video.videoWidth / canvasRatio;
+      sy = (video.videoHeight - sh) / 2;
+    }
+
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+    animationFrameRef.current = requestAnimationFrame(drawLandscapeFrame);
+  };
+
   const startRecording = () => {
-    if (!stream) return;
+    if (!stream || !recordingCanvasRef.current) return;
     chunksRef.current = [];
     setThumbnailBlob(null);
 
@@ -118,7 +164,23 @@ function RecordContent() {
       : "video/webm;codecs=vp8,opus";
 
     try {
-      const mediaRecorder = new MediaRecorder(stream, { mimeType });
+      const canvas = recordingCanvasRef.current;
+      canvas.width = 1280;
+      canvas.height = 720;
+
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      drawLandscapeFrame();
+
+      const canvasStream = canvas.captureStream(30);
+      const mixedStream = new MediaStream([
+        ...canvasStream.getVideoTracks(),
+        ...stream.getAudioTracks(),
+      ]);
+      recordingStreamRef.current = mixedStream;
+
+      const mediaRecorder = new MediaRecorder(mixedStream, { mimeType });
       mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
@@ -126,6 +188,8 @@ function RecordContent() {
         const blob = new Blob(chunksRef.current, { type: mediaRecorder.mimeType });
         setRecordedBlob(blob);
         setVideoUrl(URL.createObjectURL(blob));
+        recordingStreamRef.current?.getVideoTracks().forEach(track => track.stop());
+        recordingStreamRef.current = null;
       };
 
       mediaRecorderRef.current = mediaRecorder;
@@ -148,6 +212,11 @@ function RecordContent() {
         thumbnailTimerRef.current = null;
       }
 
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+
       mediaRecorderRef.current.stop();
       setIsRecording(false);
       stream?.getTracks().forEach(track => track.stop());
@@ -159,6 +228,14 @@ function RecordContent() {
       clearTimeout(thumbnailTimerRef.current);
       thumbnailTimerRef.current = null;
     }
+
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+
+    recordingStreamRef.current?.getTracks().forEach(track => track.stop());
+    recordingStreamRef.current = null;
 
     setRecordedBlob(null);
     setThumbnailBlob(null);
@@ -277,6 +354,7 @@ function RecordContent() {
       </div>
 
       <canvas ref={canvasRef} className="hidden" />
+      <canvas ref={recordingCanvasRef} className="hidden" />
 
       <div className="h-64 bg-black flex flex-col p-6 z-20">
         {!recordedBlob && !error ? (
@@ -301,7 +379,7 @@ function RecordContent() {
                   onChange={(e) => setTargetId(e.target.value)}
                   className="flex-1 bg-gray-900 text-white rounded-xl p-3 text-sm font-bold border border-white/10 outline-none"
                 >
-                  {MOCK_TARGETS.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  {targets.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </div>
               <input 

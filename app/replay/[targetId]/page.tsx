@@ -89,7 +89,7 @@ function ReplayContent() {
         setCurrentIndex(0);
       } catch (fetchError) {
         console.error("Replay fetch error:", fetchError);
-        setError(fetchError instanceof Error ? fetchError.message : "릴스를 불러오지 못했습니다.");
+        setError(fetchError instanceof Error ? fetchError.message : "한편을 불러오지 못했습니다.");
       } finally {
         setIsLoading(false);
       }
@@ -105,10 +105,10 @@ function ReplayContent() {
     : undefined;
   const title =
     mode === "last30"
-      ? "최근 30일 릴스"
+      ? "최근 30일 한편"
       : year && month
-        ? `${year}.${month.padStart(2, "0")} 릴스`
-        : "월 릴스";
+        ? `${year}.${month.padStart(2, "0")} 한편`
+        : "월 한편";
 
   const playNext = () => {
     setCurrentIndex((index) => (index + 1 < logs.length ? index + 1 : index));
@@ -145,13 +145,13 @@ function ReplayContent() {
             <ChevronLeft size={22} />
           </Link>
           <div className="text-center">
-            <h1 className="text-sm font-black">{target?.name ?? "감사 릴스"}</h1>
+            <h1 className="text-sm font-black">{target?.name ?? "감사 한편"}</h1>
             <p className="text-[10px] text-[#A69785] font-bold mt-1 uppercase tracking-widest">{title}</p>
           </div>
           <button
             onClick={shareReel}
             className="w-10 h-10 rounded-full bg-[#FFF67B] border border-[#D4B872]/60 flex items-center justify-center text-[#6B5700] shadow-sm"
-            aria-label="릴스 공유"
+            aria-label="한편 공유"
           >
             {shareStatus === "copied" ? <Check size={18} /> : <Share2 size={18} />}
           </button>
@@ -164,7 +164,7 @@ function ReplayContent() {
             {isLoading ? (
               <div className="h-full flex flex-col items-center justify-center gap-3 text-white/65">
                 <Loader2 className="animate-spin" />
-                <p className="text-sm">릴스를 불러오는 중...</p>
+                <p className="text-sm">한편을 불러오는 중...</p>
               </div>
             ) : error ? (
               <div className="h-full flex items-center justify-center px-6 text-center text-sm text-red-100">
@@ -250,7 +250,7 @@ function ReplayContent() {
 
 export default function ReplayPage() {
   return (
-    <Suspense fallback={<div className="h-screen bg-[#FFFCF2] flex items-center justify-center text-[#4A3F35]">릴스를 불러오는 중...</div>}>
+    <Suspense fallback={<div className="h-screen bg-[#FFFCF2] flex items-center justify-center text-[#4A3F35]">한편을 불러오는 중...</div>}>
       <ReplayContent />
     </Suspense>
   );

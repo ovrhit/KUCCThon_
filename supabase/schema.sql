@@ -45,7 +45,7 @@ CREATE TABLE shared_reels (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     creator_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     target_id UUID NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
-    title VARCHAR(100),                 -- 예: '엄마께 드리는 감사 릴스'
+    title VARCHAR(100),                 -- 예: '엄마께 드리는 감사 한편'
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

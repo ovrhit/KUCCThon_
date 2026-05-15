@@ -4,16 +4,17 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Loader2, Play, X } from "lucide-react";
-import { MOCK_TARGETS, resolveTargetId } from "@/lib/mockData";
+import { resolveTargetId } from "@/lib/mockData";
+import { fetchDemoTargets } from "@/lib/targets";
 import { supabase } from "@/lib/supabase/client";
 import { VIDEO_BUCKET } from "@/lib/supabase/paths";
-import { GratitudeLog } from "@/types";
+import { GratitudeLog, Target } from "@/types";
 
 export default function TargetDetailPage() {
   const params = useParams();
   const targetId = resolveTargetId(params?.id as string);
-  const target = MOCK_TARGETS.find((item) => item.id === targetId);
 
+  const [target, setTarget] = useState<Target | null>(null);
   const [logs, setLogs] = useState<GratitudeLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedLog, setSelectedLog] = useState<GratitudeLog | null>(null);
@@ -21,6 +22,15 @@ export default function TargetDetailPage() {
 
   const currentYear = calendarDate.getFullYear();
   const currentMonth = calendarDate.getMonth() + 1;
+
+  useEffect(() => {
+    async function fetchTarget() {
+      const targets = await fetchDemoTargets();
+      setTarget(targets.find((item) => item.id === targetId) ?? null);
+    }
+
+    fetchTarget();
+  }, [targetId]);
 
   useEffect(() => {
     async function fetchLogs() {
@@ -129,7 +139,7 @@ export default function TargetDetailPage() {
             </div>
             <Link href={monthReplayHref} className="flex items-center space-x-1 text-xs bg-[#FFF67B] text-[#6B5700] px-4 py-2 rounded-full border border-[#D4B872]/50 shadow-sm hover:scale-105 transition-transform font-black">
               <Play size={14} fill="currentColor" />
-              <span>월 릴스</span>
+              <span>월 한편</span>
             </Link>
           </div>
 
